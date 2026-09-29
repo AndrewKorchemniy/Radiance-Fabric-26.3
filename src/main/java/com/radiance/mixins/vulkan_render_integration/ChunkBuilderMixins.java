@@ -4,6 +4,7 @@ import com.radiance.mixin_related.extensions.vulkan_render_integration.IChunkBui
 import net.minecraft.client.render.chunk.BlockBufferAllocatorStorage;
 import net.minecraft.client.render.chunk.ChunkBuilder;
 import net.minecraft.client.render.chunk.SectionBuilder;
+import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.world.ClientWorld;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,6 +24,9 @@ public class ChunkBuilderMixins implements IChunkBuilderExt {
     @Shadow
     ClientWorld world;
 
+    @Shadow
+    WorldRenderer worldRenderer;
+
     @Override
     public SectionBuilder radiance$getSectionBuilder() {
         return sectionBuilder;
@@ -31,6 +35,11 @@ public class ChunkBuilderMixins implements IChunkBuilderExt {
     @Override
     public ClientWorld radiance$getWorld() {
         return world;
+    }
+
+    @Override
+    public WorldRenderer radiance$getWorldRenderer() {
+        return worldRenderer;
     }
 
     @Override

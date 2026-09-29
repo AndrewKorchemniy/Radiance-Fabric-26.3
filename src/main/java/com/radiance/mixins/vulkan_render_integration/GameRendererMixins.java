@@ -3,6 +3,7 @@ package com.radiance.mixins.vulkan_render_integration;
 import com.llamalad7.mixinextras.sugar.Local;
 import com.radiance.client.proxy.vulkan.BufferProxy;
 import com.radiance.client.proxy.vulkan.RendererProxy;
+import com.radiance.client.proxy.vulkan.VulkanUiProxy;
 import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
 import net.minecraft.client.MinecraftClient;
@@ -71,10 +72,10 @@ public abstract class GameRendererMixins implements IGameRendererExt {
     public void redirectRenderBlur(CallbackInfo ci) {
         float f = this.client.options.getMenuBackgroundBlurrinessValue();
 
-        //if (this.client.world == null && this.client.currentScreen != null && !(f < 1.0F)) {
+
         if (!(f < 1.0F)) {
             BufferProxy.updateOverlayPostUniform(f);
-            RendererProxy.postBlur();
+            VulkanUiProxy.postBlur();
         }
 
         ci.cancel();
@@ -127,19 +128,21 @@ public abstract class GameRendererMixins implements IGameRendererExt {
 
     @Inject(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V", at = @At(value = "TAIL"))
     public void fuseWorld(RenderTickCounter renderTickCounter, CallbackInfo ci) {
-        RendererProxy.fuseWorld();
+        VulkanUiProxy.fuseWorld();
     }
 
     @Inject(method = "renderHand(Lnet/minecraft/client/render/Camera;FLorg/joml/Matrix4f;)V", at = @At(value = "HEAD"), cancellable = true)
     public void redirectRenderHand(Camera camera, float tickDelta, Matrix4f matrix4f,
         CallbackInfo ci) {
-        float worldFov = this.getFov(camera, tickDelta, true);
-        float handFov = this.getFov(camera, tickDelta, false);
-        float handProjectionScale =
-            (float) (Math.tan(Math.toRadians(worldFov * 0.5F)) /
-                Math.tan(Math.toRadians(handFov * 0.5F)));
-        EntityProxy.queueHandRebuild(buffers, tickDelta, firstPersonRenderer,
-            handProjectionScale);
+        if (EntityProxy.isEntityNativeTransferEnabled()) {
+            float worldFov = this.getFov(camera, tickDelta, true);
+            float handFov = this.getFov(camera, tickDelta, false);
+            float handProjectionScale =
+                (float) (Math.tan(Math.toRadians(worldFov * 0.5F)) /
+                    Math.tan(Math.toRadians(handFov * 0.5F)));
+            EntityProxy.queueHandRebuild(buffers, tickDelta, firstPersonRenderer,
+                handProjectionScale);
+        }
         ci.cancel();
     }
 

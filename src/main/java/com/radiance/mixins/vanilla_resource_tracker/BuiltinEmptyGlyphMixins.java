@@ -1,5 +1,6 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
+import com.radiance.client.texture.TextureTracker;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.IRenderableGlyphExt;
 import java.util.function.Function;
@@ -19,10 +20,10 @@ public abstract class BuiltinEmptyGlyphMixins {
     @Shadow
     NativeImage image;
 
-    /**
-     * @author LJIONG
-     * @reason to pass image targetID
-     */
+
+
+
+
     @Overwrite
     public BakedGlyph bake(Function<RenderableGlyph, BakedGlyph> function) {
         return function.apply(new IRenderableGlyphExt() {
@@ -49,7 +50,7 @@ public abstract class BuiltinEmptyGlyphMixins {
 
             @Override
             public void upload(int id, int x, int y) {
-                ((INativeImageExt) (Object) image).radiance$setTargetID(id);
+                ((INativeImageExt) (Object) image).radiance$setTarget(TextureTracker.captureTarget(id));
                 upload(x, y);
             }
 

@@ -1,5 +1,7 @@
 package com.radiance.mixins.vulkan_render_integration;
 
+import com.radiance.client.proxy.world.EntityProxy;
+import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.RenderPhase;
 import net.minecraft.client.render.VertexFormat;
@@ -41,5 +43,13 @@ public class RenderLayerMixins {
                         TriState.FALSE,
                         false))
                     .build(false));
+    }
+
+    @Inject(method = "draw(Lnet/minecraft/client/render/BuiltBuffer;)V", at = @At("HEAD"),
+        cancellable = true)
+    private void captureWorldRenderDraw(BuiltBuffer buffer, CallbackInfo ci) {
+        if (EntityProxy.captureWorldRenderLayer((RenderLayer) (Object) this, buffer)) {
+            ci.cancel();
+        }
     }
 }

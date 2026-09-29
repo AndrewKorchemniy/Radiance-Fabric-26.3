@@ -41,8 +41,8 @@ public class BufferRendererMixins {
                     .indexCount(),
                 Constants.IndexTypes.getValue(buffer.getDrawParameters()
                     .indexType()),
-                uniform.addr(),
-                uniform.size());
+                uniform.address(),
+                uniform.sizeBytes());
         }
 
         buffer.close();

@@ -20,12 +20,12 @@ public class ReloadableResourceManagerImplMixins {
 
     @Inject(method = "registerReloader(Lnet/minecraft/resource/ResourceReloader;)V", at = @At(value = "HEAD"))
     public void addInfo(ResourceReloader reloader, CallbackInfo ci) {
-//        if (reloader == null) {
-//            System.out.println("Reloader: null");
-//        } else {
-//            System.out.println("Reloader: " + reloader.getClass()
-//                .getName());
-//        }
+
+
+
+
+
+
     }
 
     @Inject(method = "reload", at = @At("HEAD"))

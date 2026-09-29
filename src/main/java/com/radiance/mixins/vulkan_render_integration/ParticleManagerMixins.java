@@ -76,15 +76,15 @@ public class ParticleManagerMixins implements IParticleManagerExt {
         AtomicInteger counter = PARTICLE_COUNTERS.get(particle.getClass());
         if (counter != null) {
             int numParticles = counter.get();
-//            if (particle instanceof WaterSuspendParticle) {
-//                if (numParticles > 128) {
-//                    cir.setReturnValue(null);
-//                }
-//            } else if (particle instanceof RainSplashParticle || particle instanceof WaterSplashParticle) {
-//                if (numParticles > 32) {
-//                    cir.setReturnValue(null);
-//                }
-//            }
+
+
+
+
+
+
+
+
+
         }
 
         Identifier particleId = Registries.PARTICLE_TYPE.getId(parameters.getType());

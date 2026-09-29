@@ -8,10 +8,10 @@ import net.minecraft.resource.ResourceReloader;
 public class AuxiliaryTextureReloader implements ResourceReloader {
 
     @Override
-    public CompletableFuture<Void> reload(Synchronizer synchronizer, ResourceManager manager,
+    public CompletableFuture<Void> reload(Synchronizer synchronizer, ResourceManager resourceManager,
         Executor prepareExecutor, Executor applyExecutor) {
-        return AuxiliaryTextures.prepareDecodedImagesAsync(manager, prepareExecutor)
+        return AuxiliaryTextures.decodeImagesAsync(resourceManager, prepareExecutor)
             .thenCompose(synchronizer::whenPrepared)
-            .thenAcceptAsync(AuxiliaryTextures::applyPreparedImages, applyExecutor);
+            .thenAcceptAsync(AuxiliaryTextures::applyDecodedImages, applyExecutor);
     }
 }

@@ -16,7 +16,7 @@ public class MipmapUtil {
     private MipmapUtil() {
     }
 
-    // straight forward, need speed up
+
     public static NativeImage getSpecificMipmapLevelImage(NativeImage original, int targetLevel) {
         if (targetLevel == 0) {
             NativeImage ret = new NativeImage(original.getFormat(), original.getWidth(),

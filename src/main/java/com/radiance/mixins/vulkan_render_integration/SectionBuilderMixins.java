@@ -128,7 +128,7 @@ public abstract class SectionBuilderMixins {
         PBRVertexConsumer pbrVertexConsumer = builders.get(layer);
         if (pbrVertexConsumer == null) {
             BufferAllocator bufferAllocator = allocatorStorage.get(layer);
-            pbrVertexConsumer = new PBRVertexConsumer(bufferAllocator, layer);
+            pbrVertexConsumer = PBRVertexConsumer.chunk(bufferAllocator, layer);
             builders.put(layer, pbrVertexConsumer);
         }
 

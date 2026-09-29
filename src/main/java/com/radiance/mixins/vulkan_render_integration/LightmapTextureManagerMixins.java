@@ -71,7 +71,7 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
     @Shadow
     private MinecraftClient client;
 
-    // region <init>
+
     @Redirect(method = "<init>(Lnet/minecraft/client/render/GameRenderer;Lnet/minecraft/client/MinecraftClient;)V",
         at = @At(value = "NEW", target = "net/minecraft/client/gl/SimpleFramebuffer"))
     public SimpleFramebuffer cancelFramebufferConstruction(int width, int height,
@@ -130,9 +130,9 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
         this.radiance$texture.setFilter(true, false);
         this.radiance$texture.upload();
     }
-    // endregion
 
-    // region <close>
+
+
     @Redirect(method = "close()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gl/SimpleFramebuffer;delete()V"))
     public void cancelFramebufferDelete(SimpleFramebuffer instance) {
 
@@ -147,17 +147,17 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
             this.radiance$textureIdentifier = null;
         }
     }
-    // endregion
 
-    // region <disable>
+
+
     @Inject(method = "disable()V", at = @At(value = "HEAD"), cancellable = true)
     public void cancelDisable(CallbackInfo ci) {
         RenderSystem.setShaderTexture(2, 0);
         ci.cancel();
     }
-    // endregion
 
-    // region <enable>
+
+
     @Inject(method = "enable()V", at = @At(value = "HEAD"), cancellable = true)
     public void cancelEnable(CallbackInfo ci) {
         if (this.radiance$textureIdentifier != null) {
@@ -167,9 +167,9 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
         }
         ci.cancel();
     }
-    // endregion
 
-    // region <update>
+
+
     @Shadow
     protected abstract float getDarknessFactor(float delta);
 
@@ -308,7 +308,7 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
         }
         ci.cancel();
     }
-    // endregion
+
 
     @Unique
     private static void radiance$clamp(Vector3f vec) {
