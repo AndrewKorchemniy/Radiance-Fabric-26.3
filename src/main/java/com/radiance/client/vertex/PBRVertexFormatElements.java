@@ -1,69 +1,42 @@
 package com.radiance.client.vertex;
 
-import com.mojang.renderpearl.api.vertex.VertexFormatElement;
+import com.mojang.renderpearl.api.GpuFormat;
 
-public class PBRVertexFormatElements {
+/**
+ * The attributes of Radiance's PBR vertex formats.
+ *
+ * <p>1.21.4 registered these in vanilla's global element table and let {@code VertexFormat} work out
+ * offsets and masks. 26.3's elements are plain (name, offset, format) records with no ids or masks,
+ * and {@code BufferBuilder} only writes vanilla's eight attribute names, so Radiance keeps its own
+ * small element model; {@link PBRVertexFormats} lays the elements out.
+ */
+public final class PBRVertexFormatElements {
 
-    private static int nextId() {
-        for (int id = 0; id < VertexFormatElement.MAX_COUNT; id++) {
-            if (VertexFormatElement.byId(id) == null) return id;
+    public record Element(int id, String name, GpuFormat format) {
+
+        public int mask() {
+            return 1 << this.id;
         }
-        throw new IllegalStateException("Vertex format element limit exceeded while registering Radiance");
+
+        public int size() {
+            return this.format.blockSize();
+        }
     }
 
-    public static final VertexFormatElement
-        PBR_POS =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.FLOAT,
-            VertexFormatElement.Usage.GENERIC, 3);
+    public static final Element PBR_POS = new Element(0, "Pos", GpuFormat.RGB32_FLOAT);
+    public static final Element PBR_NORM = new Element(1, "NormalOct", GpuFormat.R32_UINT);
+    public static final Element PBR_COLOR_LAYER = new Element(2, "ColorRGBA8", GpuFormat.R32_UINT);
+    public static final Element PBR_TEXTURE_UV = new Element(3, "TextureUV", GpuFormat.RG32_FLOAT);
+    public static final Element PBR_OVERLAY_UV = new Element(4, "OverlayUV", GpuFormat.R32_UINT);
+    public static final Element PBR_TEXTURE_ID = new Element(5, "TextureID", GpuFormat.R32_UINT);
+    public static final Element PBR_GLINT_UV = new Element(6, "GlintUVHalf", GpuFormat.R32_UINT);
+    public static final Element PBR_GLINT_TEXTURE = new Element(7, "GlintTexture", GpuFormat.R32_UINT);
+    public static final Element PBR_LIGHT_UV = new Element(8, "LightUV", GpuFormat.R32_UINT);
+    public static final Element PBR_COORDINATE = new Element(9, "PackedData", GpuFormat.R32_UINT);
+    public static final Element PBR_POST_BASE = new Element(10, "PostBase", GpuFormat.RGB32_FLOAT);
 
-    public static final VertexFormatElement
-        PBR_NORM =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
+    public static final int ELEMENT_COUNT = 11;
 
-    public static final VertexFormatElement
-        PBR_COLOR_LAYER =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_TEXTURE_UV =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.FLOAT,
-            VertexFormatElement.Usage.GENERIC, 2);
-
-    public static final VertexFormatElement
-        PBR_OVERLAY_UV =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_TEXTURE_ID =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_GLINT_UV =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_GLINT_TEXTURE =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_LIGHT_UV =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_COORDINATE =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.UINT,
-            VertexFormatElement.Usage.UV, 1);
-
-    public static final VertexFormatElement
-        PBR_POST_BASE =
-        VertexFormatElement.register(nextId(), 0, VertexFormatElement.Type.FLOAT,
-            VertexFormatElement.Usage.GENERIC, 3);
-
+    private PBRVertexFormatElements() {
+    }
 }

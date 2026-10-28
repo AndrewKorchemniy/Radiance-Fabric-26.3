@@ -1,38 +1,40 @@
 package com.radiance.client.constant;
 
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
 import com.radiance.client.vertex.PBRVertexFormats;
+import com.radiance.client.vertex.RenderTypeInfo;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Collectors;
-import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.rendertype.RenderType;
 
 public class Constants {
 
     public enum IndexTypes {
-        SHORT(VertexFormat.IndexType.SHORT, 0),
-        INT(VertexFormat.IndexType.INT, 1);
+        SHORT(IndexType.SHORT, 0),
+        INT(IndexType.INT, 1);
 
-        private static final Map<VertexFormat.IndexType, Integer>
+        private static final Map<IndexType, Integer>
             BY_INDEX_TYPE =
             Collections.unmodifiableMap(Arrays.stream(values())
                 .collect(Collectors.toMap(IndexTypes::getIndexType, IndexTypes::getValue)));
 
-        private final VertexFormat.IndexType indexType;
+        private final IndexType indexType;
         private final int value;
 
-        IndexTypes(VertexFormat.IndexType indexType, int value) {
+        IndexTypes(IndexType indexType, int value) {
             this.indexType = indexType;
             this.value = value;
         }
 
-        public static int getValue(VertexFormat.IndexType indexType) {
+        public static int getValue(IndexType indexType) {
             return BY_INDEX_TYPE.get(indexType);
         }
 
-        public VertexFormat.IndexType getIndexType() {
+        public IndexType getIndexType() {
             return indexType;
         }
 
@@ -41,34 +43,38 @@ public class Constants {
         }
     }
 
+    /**
+     * Native draw mode values. 26.3 dropped {@code LINE_STRIP} (value 1 stays unused so the existing
+     * values keep their meaning) and added {@code POINTS}.
+     */
     public enum DrawModes {
-        LINES(VertexFormat.Mode.LINES, 0),
-        LINE_STRIP(VertexFormat.Mode.LINE_STRIP, 1),
-        DEBUG_LINES(VertexFormat.Mode.DEBUG_LINES, 2),
-        DEBUG_LINE_STRIP(VertexFormat.Mode.DEBUG_LINE_STRIP, 3),
-        TRIANGLES(VertexFormat.Mode.TRIANGLES, 4),
-        TRIANGLE_STRIP(VertexFormat.Mode.TRIANGLE_STRIP, 5),
-        TRIANGLE_FAN(VertexFormat.Mode.TRIANGLE_FAN, 6),
-        QUADS(VertexFormat.Mode.QUADS, 7);
+        LINES(PrimitiveTopology.LINES, 0),
+        DEBUG_LINES(PrimitiveTopology.DEBUG_LINES, 2),
+        DEBUG_LINE_STRIP(PrimitiveTopology.DEBUG_LINE_STRIP, 3),
+        TRIANGLES(PrimitiveTopology.TRIANGLES, 4),
+        TRIANGLE_STRIP(PrimitiveTopology.TRIANGLE_STRIP, 5),
+        TRIANGLE_FAN(PrimitiveTopology.TRIANGLE_FAN, 6),
+        QUADS(PrimitiveTopology.QUADS, 7),
+        POINTS(PrimitiveTopology.POINTS, 8);
 
-        private static final Map<VertexFormat.Mode, Integer>
+        private static final Map<PrimitiveTopology, Integer>
             BY_DRAW_MODE =
             Collections.unmodifiableMap(Arrays.stream(values())
                 .collect(Collectors.toMap(DrawModes::getDrawMode, DrawModes::getValue)));
 
-        private final VertexFormat.Mode drawMode;
+        private final PrimitiveTopology drawMode;
         private final int value;
 
-        DrawModes(VertexFormat.Mode drawMode, int value) {
+        DrawModes(PrimitiveTopology drawMode, int value) {
             this.drawMode = drawMode;
             this.value = value;
         }
 
-        public static int getValue(VertexFormat.Mode drawMode) {
+        public static int getValue(PrimitiveTopology drawMode) {
             return BY_DRAW_MODE.get(drawMode);
         }
 
-        public VertexFormat.Mode getDrawMode() {
+        public PrimitiveTopology getDrawMode() {
             return drawMode;
         }
 
@@ -77,11 +83,17 @@ public class Constants {
         }
     }
 
+    /**
+     * Native vertex layout values. Native decodes these layouts byte for byte, so it must follow
+     * 26.3's changes: {@code BLOCK} lost its normal and is now 28 bytes (position, color, UV0, packed
+     * light), while {@code ENTITY} (formerly {@code NEW_ENTITY}) and {@code PARTICLE} kept their
+     * layouts.
+     */
     public enum VertexFormats {
         POSITION_COLOR_TEXTURE_LIGHT_NORMAL(
             com.mojang.blaze3d.vertex.DefaultVertexFormat.BLOCK, 0),
         POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL(
-            com.mojang.blaze3d.vertex.DefaultVertexFormat.NEW_ENTITY,
+            com.mojang.blaze3d.vertex.DefaultVertexFormat.ENTITY,
             1),
         POSITION_TEXTURE_COLOR_LIGHT(
             com.mojang.blaze3d.vertex.DefaultVertexFormat.PARTICLE, 2),
@@ -97,8 +109,8 @@ public class Constants {
             com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX_LIGHTMAP_COLOR, 10),
         POSITION_TEXTURE_COLOR_NORMAL(
             com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX_COLOR_NORMAL, 11),
-        ENTITY_PBR_TRIANGLE(PBRVertexFormats.ENTITY_PBR_TRIANGLE, 12),
-        CHUNK_PBR_TRIANGLE(PBRVertexFormats.CHUNK_PBR_TRIANGLE, 13);
+        ENTITY_PBR_TRIANGLE(PBRVertexFormats.ENTITY_PBR_TRIANGLE.vanillaFormat(), 12),
+        CHUNK_PBR_TRIANGLE(PBRVertexFormats.CHUNK_PBR_TRIANGLE.vanillaFormat(), 13);
 
         private static final Map<VertexFormat, Integer>
             BY_VERTEX_FORMAT =
@@ -144,16 +156,17 @@ public class Constants {
         }
 
         public static GeometryTypes getGeometryType(RenderType renderLayer, boolean reflect) {
+            String name = RenderTypeInfo.name(renderLayer);
 
-            if (renderLayer.name.contains("water_mask")) {
+            if (name.contains("water_mask")) {
                 return BOAT_WATER_MASK;
-            } else if (renderLayer.name.contains("end_portal")) {
+            } else if (name.contains("end_portal")) {
                 return END_PORTAL;
-            } else if (renderLayer.name.contains("end_gateway")) {
+            } else if (name.contains("end_gateway")) {
                 return END_GATEWAY;
             }
 
-            if (renderLayer.name.contains("cloud")) {
+            if (name.contains("cloud")) {
                 return WORLD_CLOUD;
             }
 
@@ -161,40 +174,8 @@ public class Constants {
                 return WORLD_NO_REFLECT;
             }
 
-            RenderType.CompositeRenderType multiPhase = (RenderType.CompositeRenderType) renderLayer;
-            if (multiPhase.name.contains("solid")) {
-
-                return WORLD_SOLID;
-            }
-
-            if (multiPhase.sortOnUpload()) {
-
-                if (RenderStateShard.NO_TRANSPARENCY.equals(multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.ADDITIVE_TRANSPARENCY.equals(
-                    multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.LIGHTNING_TRANSPARENCY.equals(
-                    multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.GLINT_TRANSPARENCY.equals(multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.CRUMBLING_TRANSPARENCY.equals(
-                    multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.OVERLAY_TRANSPARENCY.equals(
-                    multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else if (RenderStateShard.TRANSLUCENT_TRANSPARENCY.equals(
-                    multiPhase.state.transparencyState)) {
-                    return WORLD_TRANSPARENT;
-                } else {
-                    throw new IllegalArgumentException("Invalid render layer " + multiPhase);
-                }
-            } else {
-
-                return WORLD_TRANSPARENT;
-            }
+            // 1.21.4 sent every non-solid layer here as transparent, whatever its blend state.
+            return name.contains("solid") ? WORLD_SOLID : WORLD_TRANSPARENT;
         }
 
         public int getValue() {

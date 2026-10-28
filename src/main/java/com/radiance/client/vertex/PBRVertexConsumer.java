@@ -16,16 +16,14 @@ import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.renderpearl.api.vertex.VertexFormat;
-import com.mojang.renderpearl.api.vertex.VertexFormatElement;
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.radiance.client.vertex.PBRVertexFormatElements.Element;
+import com.radiance.client.vertex.PBRVertexFormats.PBRVertexFormat;
 import java.nio.ByteOrder;
-import java.util.stream.Collectors;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderStateShard;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.core.Direction;
-import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -45,9 +43,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     private static final int ALPHA_MODE_SHIFT = 8;
     private static final int COORDINATE_SHIFT = 12;
     private static final int ALBEDO_EMISSION_SHIFT = 16;
-    private static final int ALPHA_MODE_OPAQUE = 0;
-    private static final int ALPHA_MODE_CUTOUT = 1;
-    private static final int ALPHA_MODE_TRANSPARENT = 2;
+    private static final int ALPHA_MODE_OPAQUE = RenderTypeInfo.ALPHA_MODE_OPAQUE;
     private static final int POST_TEXT_MODE_BACKGROUND = 1;
     private static final int POST_TEXT_MODE_INTENSITY = 2;
     private static final int POST_TEXT_MODE_RGBA = 3;
@@ -58,8 +54,8 @@ public class PBRVertexConsumer implements VertexConsumer {
     private static final int POST_TEXT_MODE_RGBA_POLYGON_OFFSET = 8;
 
     private final ByteBufferBuilder allocator;
-    private final VertexFormat format;
-    private final VertexFormat.Mode drawMode;
+    private final PBRVertexFormat format;
+    private final PrimitiveTopology drawMode;
 
     private final int vertexSizeByte;
     private final int writableMask;
@@ -79,16 +75,20 @@ public class PBRVertexConsumer implements VertexConsumer {
     private boolean normalOffset = false;
 
     public PBRVertexConsumer(ByteBufferBuilder allocator, RenderType renderLayer) {
-        this(allocator, VertexFormat.Mode.QUADS, PBRVertexFormats.ENTITY_PBR_TRIANGLE, renderLayer);
+        this(allocator, PrimitiveTopology.QUADS, PBRVertexFormats.ENTITY_PBR_TRIANGLE,
+            RenderTypeInfo.mainTextureId(renderLayer), getAlphaMode(renderLayer),
+            getPostTextMode(RenderTypeInfo.name(renderLayer)) != ALPHA_MODE_OPAQUE);
     }
 
-    public static PBRVertexConsumer chunk(ByteBufferBuilder allocator, RenderType renderLayer) {
-        return new PBRVertexConsumer(allocator, VertexFormat.Mode.QUADS,
-            PBRVertexFormats.CHUNK_PBR_TRIANGLE, renderLayer);
+    /** Terrain layers are not render types in 26.3; every layer samples the block atlas. */
+    public static PBRVertexConsumer chunk(ByteBufferBuilder allocator, ChunkSectionLayer layer) {
+        return new PBRVertexConsumer(allocator, PrimitiveTopology.QUADS,
+            PBRVertexFormats.CHUNK_PBR_TRIANGLE, RenderTypeInfo.blockAtlasTextureId(),
+            RenderTypeInfo.alphaMode(layer), false);
     }
 
-    private PBRVertexConsumer(ByteBufferBuilder allocator, VertexFormat.Mode drawMode,
-        VertexFormat format, RenderType renderLayer) {
+    private PBRVertexConsumer(ByteBufferBuilder allocator, PrimitiveTopology drawMode,
+        PBRVertexFormat format, int textureID, int alphaMode, boolean textMaterial) {
         this.allocator = allocator;
         this.drawMode = drawMode;
         this.format = format;
@@ -106,20 +106,10 @@ public class PBRVertexConsumer implements VertexConsumer {
             throw new IllegalArgumentException("PBR format must contain POSITION element");
         }
 
-        if (renderLayer instanceof RenderType.CompositeRenderType) {
-            Identifier
-                identifier =
-                ((RenderType.CompositeRenderType) renderLayer).state.textureState.cutoutTexture()
-                    .orElse(MissingTextureAtlasSprite.getLocation());
-            textureID =
-                Minecraft.getInstance()
-                    .getTextureManager()
-                    .getTexture(identifier)
-                    .getId();
-        }
-        this.alphaMode = getAlphaMode(renderLayer);
-        this.textMaterial = renderLayer instanceof RenderType.CompositeRenderType multiPhase
-            && getPostTextMode(multiPhase.name) != ALPHA_MODE_OPAQUE;
+        // An untracked texture (-1) is sent as 0, like an untextured material on 1.21.4.
+        this.textureID = Math.max(textureID, 0);
+        this.alphaMode = alphaMode;
+        this.textMaterial = textMaterial;
     }
 
     private static void putInt(long ptr, int v) {
@@ -230,28 +220,11 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     private static int getAlphaMode(RenderType renderLayer) {
-        if (!(renderLayer instanceof RenderType.CompositeRenderType multiPhase)) {
-            return ALPHA_MODE_OPAQUE;
-        }
-
-        int postTextMode = getPostTextMode(multiPhase.name);
+        int postTextMode = getPostTextMode(RenderTypeInfo.name(renderLayer));
         if (postTextMode != ALPHA_MODE_OPAQUE) {
             return postTextMode;
         }
-
-        if (multiPhase.name.contains("solid")) {
-            return ALPHA_MODE_OPAQUE;
-        }
-
-        if (multiPhase.name.contains("cutout")) {
-            return ALPHA_MODE_CUTOUT;
-        }
-
-        if (RenderStateShard.NO_TRANSPARENCY.equals(multiPhase.state.transparencyState)) {
-            return ALPHA_MODE_CUTOUT;
-        }
-
-        return ALPHA_MODE_TRANSPARENT;
+        return RenderTypeInfo.alphaMode(renderLayer);
     }
 
     private static int getPostTextMode(String layerName) {
@@ -268,7 +241,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         };
     }
 
-    public VertexFormat getFormat() {
+    public PBRVertexFormat getFormat() {
         return this.format;
     }
 
@@ -325,9 +298,9 @@ public class PBRVertexConsumer implements VertexConsumer {
         }
 
         int indexCount = drawMode.indexCount(vertexCount);
-        VertexFormat.IndexType indexType = VertexFormat.IndexType.least(vertexCount);
-        return new MeshData(buf,
-            new MeshData.DrawState(format, vertexCount, indexCount, drawMode, indexType));
+        IndexType indexType = IndexType.least(vertexCount);
+        return new MeshData(buf, new MeshData.DrawState(format.vanillaFormat(), vertexCount,
+            indexCount, drawMode, indexType));
     }
 
     private long beginVertex() {
@@ -405,7 +378,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         return ptr;
     }
 
-    private long beginElement(VertexFormatElement element) {
+    private long beginElement(Element element) {
         int mask = currentMask;
         int bit = element.mask();
         if ((mask & bit) == 0) {
@@ -460,12 +433,8 @@ public class PBRVertexConsumer implements VertexConsumer {
 
         int missing = currentMask & requiredMask;
         if (missing != 0) {
-            String
-                s =
-                VertexFormatElement.elementsFromMask(currentMask)
-                    .map(format::getElementName)
-                    .collect(Collectors.joining(", "));
-            throw new IllegalStateException("Missing elements in vertex: " + s);
+            throw new IllegalStateException(
+                "Missing elements in vertex, element mask " + Integer.toBinaryString(missing));
         }
     }
 
@@ -518,6 +487,22 @@ public class PBRVertexConsumer implements VertexConsumer {
         if (p != -1L) {
             putInt(p, packColorRGBA8(red, green, blue, alpha));
         }
+        return this;
+    }
+
+    @Override
+    public VertexConsumer setColor(int color) {
+        return setColor((color >>> 16) & 0xFF, (color >>> 8) & 0xFF, color & 0xFF, color >>> 24);
+    }
+
+    /** Radiance's formats have no UV3 or line width; vanilla only writes them for its own formats. */
+    @Override
+    public VertexConsumer setUv3(float u, float v) {
+        return this;
+    }
+
+    @Override
+    public VertexConsumer setLineWidth(float width) {
         return this;
     }
 
@@ -599,28 +584,18 @@ public class PBRVertexConsumer implements VertexConsumer {
 
     public static boolean canUseExternalPbr(MeshData builtBuffer) {
         MeshData.DrawState drawParameters = builtBuffer.drawState();
-        return drawParameters.format() == PBRVertexFormats.ENTITY_PBR_TRIANGLE &&
-            drawParameters.mode() == VertexFormat.Mode.QUADS;
+        return drawParameters.format() == PBRVertexFormats.ENTITY_PBR_TRIANGLE.vanillaFormat()
+            && drawParameters.primitiveTopology() == PrimitiveTopology.QUADS;
     }
 
     public static class GLint implements VertexConsumer {
 
         private final PBRVertexConsumer delegate;
-        private int glintTextureID;
+        private final int glintTextureID;
 
         public GLint(PBRVertexConsumer delegate, RenderType glintRenderLayer) {
             this.delegate = delegate;
-            if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
-                Identifier
-                    identifier =
-                    ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
-                        .orElse(MissingTextureAtlasSprite.getLocation());
-                glintTextureID =
-                    Minecraft.getInstance()
-                        .getTextureManager()
-                        .getTexture(identifier)
-                        .getId();
-            }
+            this.glintTextureID = Math.max(RenderTypeInfo.mainTextureId(glintRenderLayer), 0);
         }
 
         @Override
@@ -632,6 +607,22 @@ public class PBRVertexConsumer implements VertexConsumer {
         @Override
         public VertexConsumer setColor(int red, int green, int blue, int alpha) {
             delegate.setColor(red, green, blue, alpha);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setColor(int color) {
+            delegate.setColor(color);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setUv3(float u, float v) {
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setLineWidth(float width) {
             return this;
         }
 
@@ -674,7 +665,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         private final float textureScale;
         private final Vector3f normal = new Vector3f();
         private final Vector3f pos = new Vector3f();
-        private int glintTextureID;
+        private final int glintTextureID;
         private float x;
         private float y;
         private float z;
@@ -682,17 +673,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         public GLintOverlay(PBRVertexConsumer delegate, RenderType glintRenderLayer,
             PoseStack.Pose matrix, float textureScale) {
             this.delegate = delegate;
-            if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
-                Identifier
-                    identifier =
-                    ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
-                        .orElse(MissingTextureAtlasSprite.getLocation());
-                glintTextureID =
-                    Minecraft.getInstance()
-                        .getTextureManager()
-                        .getTexture(identifier)
-                        .getId();
-            }
+            this.glintTextureID = Math.max(RenderTypeInfo.mainTextureId(glintRenderLayer), 0);
 
             this.inverseTextureMatrix = new Matrix4f(matrix.pose()).invert();
             this.inverseNormalMatrix = new Matrix3f(matrix.normal()).invert();
@@ -711,6 +692,22 @@ public class PBRVertexConsumer implements VertexConsumer {
         @Override
         public VertexConsumer setColor(int red, int green, int blue, int alpha) {
             delegate.setColor(red, green, blue, alpha);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setColor(int color) {
+            delegate.setColor(color);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setUv3(float u, float v) {
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setLineWidth(float width) {
             return this;
         }
 
