@@ -22,6 +22,7 @@ import org.joml.Vector3f;
 public class BufferProxy {
 
     /** 1.21.4's {@code FogShape} indices, which native still uses. */
+    private static final float NO_FOG_END = 1.0E8F;
     private static final int FOG_SHAPE_SPHERE = 0;
     private static final int FOG_SHAPE_CYLINDER = 1;
 
@@ -85,11 +86,19 @@ public class BufferProxy {
             // fog. 1.21.4 had a single range: take whichever is nearer, spherical for environmental
             // fog and cylindrical for distance fog, as 1.21.4's FogRenderer chose.
             boolean environmental = fog.environmentalEnd < fog.renderDistanceEnd;
-            uniformBuffer.putFloat(byteOffset,
-                environmental ? fog.environmentalStart : fog.renderDistanceStart);
+            float fogStart = environmental ? fog.environmentalStart : fog.renderDistanceStart;
+            float fogEnd = environmental ? fog.environmentalEnd : fog.renderDistanceEnd;
+            if (fogStart >= fogEnd) {
+                // Distant Horizons disables vanilla fog by pushing its start to about 4e14 while the
+                // end stays at the render distance. Native derives the air's Minecraft fog density
+                // from the end - start range, so the inverted range read as a 1 block range and
+                // buried everything in haze. Report "no fog" instead.
+                fogStart = 0.0F;
+                fogEnd = NO_FOG_END;
+            }
+            uniformBuffer.putFloat(byteOffset, fogStart);
             byteOffset += Float.BYTES;
-            uniformBuffer.putFloat(byteOffset,
-                environmental ? fog.environmentalEnd : fog.renderDistanceEnd);
+            uniformBuffer.putFloat(byteOffset, fogEnd);
             byteOffset += Float.BYTES;
 
             uniformBuffer.putFloat(byteOffset, fog.color.x());
