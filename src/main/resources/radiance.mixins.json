@@ -14,6 +14,7 @@
     "vanilla_resource_tracker.FontManagerMixins",
     "vanilla_resource_tracker.SpriteAtlasTextureMixins",
     "vanilla_resource_tracker.SpriteContentsMixins",
+    "vanilla_resource_tracker.SpriteScratchTextureMixins",
     "vanilla_resource_tracker.TextureUploadMixins",
     "vanilla_resource_tracker.VulkanGpuTextureMixins",
     "vulkan_device.FrontendGpuDeviceAccessor",

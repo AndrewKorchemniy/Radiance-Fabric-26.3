@@ -47,6 +47,9 @@ public class TextureTracker {
      * reads vanilla's depth targets, and formats native has no mapping for are skipped.
      */
     public static void onVanillaTextureCreated(VulkanGpuTexture texture) {
+        if (importSuppressed.get()) {
+            return;
+        }
         GpuFormat format = texture.getFormat();
         if ((texture.usage() & GpuTexture.USAGE_TEXTURE_BINDING) == 0 || !format.hasColorAspect()) {
             return;
@@ -68,6 +71,23 @@ public class TextureTracker {
         TextureTarget target = vanillaTextures.remove(texture);
         if (target != null) {
             TextureProxy.releaseTexture(target.id());
+        }
+    }
+
+    private static final ThreadLocal<Boolean> importSuppressed = ThreadLocal.withInitial(() -> false);
+
+    /**
+     * Creates textures in {@code action} without importing them. For textures native never samples:
+     * 26.3 stitches atlases on the GPU from one scratch texture per sprite, thousands at once, which
+     * would otherwise exhaust native's 4096 texture slots.
+     */
+    public static <T> T withoutImport(java.util.function.Supplier<T> action) {
+        boolean previous = importSuppressed.get();
+        importSuppressed.set(true);
+        try {
+            return action.get();
+        } finally {
+            importSuppressed.set(previous);
         }
     }
 
