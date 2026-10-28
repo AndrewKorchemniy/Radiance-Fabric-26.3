@@ -3,6 +3,7 @@ package com.radiance.client.proxy.vulkan;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
 import com.mojang.renderpearl.backend.vulkan.VulkanQueue;
+import com.radiance.client.RadianceClient;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.MemoryMetricsCollector;
 import com.radiance.client.profiler.Profiler;
@@ -10,6 +11,7 @@ import com.radiance.mixin_related.extensions.vulkan_render_integration.INativeIm
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import org.lwjgl.system.MemoryUtil;
 
 public class RendererProxy {
 
@@ -157,9 +159,7 @@ public class RendererProxy {
      * holds only the UI. The callback receives the next presented frame.
      */
     public static void captureScreenshot(Consumer<NativeImage> callback) {
-        if (pendingScreenshots.isEmpty()) {
-            requestScreenshot();
-        }
+        requestScreenshot();
         pendingScreenshots.add(callback);
     }
 
@@ -171,19 +171,32 @@ public class RendererProxy {
         int width = (int) (size >>> 32);
         int height = (int) size;
         if (width <= 0 || height <= 0) {
+            // Not captured yet. Recreating the swapchain drops native's request, so ask again; a
+            // repeated request before the capture is harmless.
+            requestScreenshot();
             return;
+        }
+        NativeImage image = new NativeImage(width, height, false);
+        long pixels = ((INativeImageExt) (Object) image).radiance$getPointer();
+        if (!readScreenshot(pixels, width, height)) {
+            image.close();
+            requestScreenshot();
+            return;
+        }
+        // Vanilla's screenshots are opaque whatever the target's alpha held.
+        for (long offset = 3; offset < (long) width * height * 4; offset += 4) {
+            MemoryUtil.memPutByte(pixels + offset, (byte) 0xFF);
         }
         List<Consumer<NativeImage>> callbacks = new ArrayList<>(pendingScreenshots);
         pendingScreenshots.clear();
-        NativeImage image = new NativeImage(width, height, false);
-        if (!readScreenshot(((INativeImageExt) (Object) image).radiance$getPointer(), width, height)) {
-            image.close();
-            return;
-        }
         for (int i = 0; i < callbacks.size(); i++) {
             // Each callback owns and closes its image.
             NativeImage copy = i == callbacks.size() - 1 ? image : copyOf(image);
-            callbacks.get(i).accept(copy);
+            try {
+                callbacks.get(i).accept(copy);
+            } catch (RuntimeException e) {
+                RadianceClient.LOGGER.warn("Screenshot callback failed", e);
+            }
         }
     }
 

@@ -209,7 +209,9 @@ public abstract class WorldRendererMixins {
      */
     @Unique
     private Matrix4f radiance$projectionMatrix(CameraRenderState cameraState) {
-        Matrix4f projectionMatrix = new Matrix4f(cameraState.projectionMatrix);
+        // Convert before warping: the warp mixes the depth row, after which near and far can no
+        // longer be read back from the matrix.
+        Matrix4f projectionMatrix = radiance$toOpenGlDepth(new Matrix4f(cameraState.projectionMatrix));
         PlayerRenderState playerState = this.levelRenderState.playerRenderState;
         float screenEffectScale = this.optionsRenderState.screenEffectScale;
         float spinningEffectIntensity = Math.max(playerState.portalEffectIntensity,
@@ -224,7 +226,7 @@ public abstract class WorldRendererMixins {
             projectionMatrix.scale(1.0F / skew, 1.0F, 1.0F);
             projectionMatrix.rotate(-angle, axis);
         }
-        return radiance$toOpenGlDepth(projectionMatrix);
+        return projectionMatrix;
     }
 
     /**
