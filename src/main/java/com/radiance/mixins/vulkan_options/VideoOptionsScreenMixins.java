@@ -21,7 +21,9 @@ import net.minecraft.client.OptionInstance;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.options.VideoSettingsScreen;
 import net.minecraft.network.chat.Component;
+import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -29,6 +31,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(VideoSettingsScreen.class)
 public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
+
+    @Shadow
+    private @Nullable Monitor fullscreenModeMonitor;
 
     @Unique
     private static final Component INACTIVITY_FPS_LIMIT_MINIMIZED_TOOLTIP = Component.translatable(
@@ -84,6 +89,10 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
             Minecraft.getInstance()
                 .getWindow();
         Monitor monitor = window.findBestMonitor();
+        // Vanilla's addOptions records this monitor, and repositionElements rebuilds the screen
+        // whenever the current monitor differs from it. Left unset, every rebuild triggered
+        // another until the stack overflowed.
+        this.fullscreenModeMonitor = monitor;
         int j;
         if (monitor == null) {
             j = -1;
