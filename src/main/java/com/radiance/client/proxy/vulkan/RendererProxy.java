@@ -1,14 +1,38 @@
 package com.radiance.client.proxy.vulkan;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
 import com.mojang.renderpearl.backend.vulkan.VulkanQueue;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.MemoryMetricsCollector;
 import com.radiance.client.profiler.Profiler;
+import com.radiance.mixin_related.extensions.vulkan_render_integration.INativeImageExt;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 
 public class RendererProxy {
 
     public static native void initFolderPath(String folderPath);
+
+    // Upscaler ids for the extension queries below; native defines the same values.
+    public static final int UPSCALER_DLSS_RR = 0;
+    public static final int UPSCALER_DLSS_SR = 1;
+    public static final int UPSCALER_DLSS_FRAME_GENERATION = 2;
+    public static final int UPSCALER_XESS = 3;
+
+    /**
+     * The instance extensions an upscaler SDK needs, or null if the SDK cannot tell (for example,
+     * without its driver). Safe to call before the renderer exists.
+     */
+    public static native String[] queryUpscalerInstanceExtensions(int upscaler);
+
+    /**
+     * The device extensions an upscaler SDK needs on {@code physicalDevice}, or null if the SDK
+     * cannot tell. Safe to call before the device exists.
+     */
+    public static native String[] queryUpscalerDeviceExtensions(int upscaler, long instance,
+        long physicalDevice);
 
     /**
      * Attaches the native renderer to vanilla's Vulkan device instead of letting it create its own.
@@ -70,6 +94,11 @@ public class RendererProxy {
     /** Set once native is attached; vanilla submits before that need no lock (and may precede loading). */
     private static volatile boolean graphicsQueueShared = false;
 
+    /** Whether native has attached to vanilla's device and presents frames. */
+    public static boolean isAttached() {
+        return graphicsQueueShared;
+    }
+
     public static void runWithGraphicsQueue(Runnable action) {
         if (!graphicsQueueShared) {
             action.run();
@@ -92,18 +121,77 @@ public class RendererProxy {
 
     /**
      * The image vanilla drew this frame's UI into: its main target, cleared to transparent black, with
-     * the GUI, hand overlay and screen effects blended on top (straight alpha, coverage in the alpha
-     * channel). Native composites it over the ray-traced world when it presents, as it did with the
-     * OpenGL UI surface on 1.21.4. The image is RGBA8 in {@code VK_IMAGE_LAYOUT_GENERAL} and stored
-     * bottom-up.
+     * the GUI, hand overlay and screen effects blended on top, which leaves the color premultiplied
+     * by the coverage in the alpha channel. Native composites it over the ray-traced world when it
+     * presents, as it did with the OpenGL UI surface on 1.21.4. The image is RGBA8 in
+     * {@code VK_IMAGE_LAYOUT_GENERAL} and stored bottom-up.
      */
     public static native void setPresentSource(long vkImage, long vkImageView, int width, int height);
+
+    /**
+     * Blurs the world under the UI in the next presented frame. Vanilla's menu blur runs on its main
+     * target, which only holds the UI, so the world is blurred natively. Lasts one frame.
+     */
+    public static native void setWorldBlurRadius(float radius);
+
+    /** Captures the next presented frame, world and UI together, for {@link #readScreenshot}. */
+    private static native void requestScreenshot();
+
+    /** Width in the high 32 bits and height in the low 32 bits, or 0 while nothing is captured. */
+    private static native long screenshotSize();
+
+    /** Copies the captured frame to {@code destination} as top-down RGBA8, waiting for the GPU. */
+    private static native boolean readScreenshot(long destination, int width, int height);
 
     private static native void submitCommand();
 
     private static native void present();
 
     public static native int getPresentedFrameRate();
+
+    /** Callbacks for screenshots requested but not yet captured; touched only on the render thread. */
+    private static final List<Consumer<NativeImage>> pendingScreenshots = new ArrayList<>();
+
+    /**
+     * Takes a screenshot of what native presents: vanilla's own capture reads its main target, which
+     * holds only the UI. The callback receives the next presented frame.
+     */
+    public static void captureScreenshot(Consumer<NativeImage> callback) {
+        if (pendingScreenshots.isEmpty()) {
+            requestScreenshot();
+        }
+        pendingScreenshots.add(callback);
+    }
+
+    private static void deliverScreenshots() {
+        if (pendingScreenshots.isEmpty()) {
+            return;
+        }
+        long size = screenshotSize();
+        int width = (int) (size >>> 32);
+        int height = (int) size;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        List<Consumer<NativeImage>> callbacks = new ArrayList<>(pendingScreenshots);
+        pendingScreenshots.clear();
+        NativeImage image = new NativeImage(width, height, false);
+        if (!readScreenshot(((INativeImageExt) (Object) image).radiance$getPointer(), width, height)) {
+            image.close();
+            return;
+        }
+        for (int i = 0; i < callbacks.size(); i++) {
+            // Each callback owns and closes its image.
+            NativeImage copy = i == callbacks.size() - 1 ? image : copyOf(image);
+            callbacks.get(i).accept(copy);
+        }
+    }
+
+    private static NativeImage copyOf(NativeImage image) {
+        NativeImage copy = new NativeImage(image.getWidth(), image.getHeight(), false);
+        copy.copyFrom(image);
+        return copy;
+    }
 
     public static void submitCommandAndPresent() {
         if (Profiler.ENABLED) {
@@ -115,6 +203,7 @@ public class RendererProxy {
             }
             submitCommand();
             present();
+            deliverScreenshots();
         } finally {
             if (Profiler.ENABLED) {
                 Profiler.exit();

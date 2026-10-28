@@ -4,11 +4,13 @@ import com.mojang.renderpearl.backend.vulkan.VulkanFeatureSets;
 import com.mojang.renderpearl.backend.vulkan.init.FeatureSet;
 import com.mojang.renderpearl.backend.vulkan.init.VulkanFeature;
 import com.mojang.renderpearl.backend.vulkan.init.VulkanPNextStruct;
+import com.radiance.client.proxy.vulkan.RendererProxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkPhysicalDeviceAccelerationStructureFeaturesKHR;
 import org.lwjgl.vulkan.VkPhysicalDeviceMaintenance4Features;
 import org.lwjgl.vulkan.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT;
@@ -134,8 +136,56 @@ public final class RadianceVulkanFeatures {
         List<FeatureSet> sets = new ArrayList<>(OPTIONAL.size() + 1);
         sets.add(RAY_TRACING_CORE);
         sets.addAll(OPTIONAL);
-        // TODO(M3): add the DLSS, FSR and XeSS device extension sets, which their SDKs report at
-        // runtime and so have to be queried from native before the device is created.
+        return sets;
+    }
+
+    private static final int[] UPSCALERS = {RendererProxy.UPSCALER_DLSS_RR,
+        RendererProxy.UPSCALER_DLSS_SR, RendererProxy.UPSCALER_DLSS_FRAME_GENERATION,
+        RendererProxy.UPSCALER_XESS};
+    private static final String[] UPSCALER_NAMES = {"DLSS ray reconstruction",
+        "DLSS super resolution", "DLSS frame generation", "XeSS"};
+
+    /**
+     * The instance extensions the DLSS and XeSS SDKs ask for. Their SDKs report these at runtime, so
+     * they are queried from native, which is loaded before vanilla creates its instance.
+     */
+    public static Set<String> upscalerInstanceExtensions() {
+        Set<String> extensions = new LinkedHashSet<>();
+        try {
+            for (int upscaler : UPSCALERS) {
+                String[] required = RendererProxy.queryUpscalerInstanceExtensions(upscaler);
+                if (required != null) {
+                    extensions.addAll(List.of(required));
+                }
+            }
+        } catch (UnsatisfiedLinkError nativeNotLoaded) {
+            // Only possible if Radiance failed to load its native library; vanilla carries on without.
+        }
+        return extensions;
+    }
+
+    /**
+     * One optional set per upscaler with the device extensions its SDK asks for on this GPU, so an
+     * upscaler is enabled exactly when all of its extensions are supported.
+     */
+    public static List<FeatureSet> upscalerFeatureSets(VkPhysicalDevice physicalDevice) {
+        List<FeatureSet> sets = new ArrayList<>();
+        try {
+            for (int i = 0; i < UPSCALERS.length; i++) {
+                String[] required = RendererProxy.queryUpscalerDeviceExtensions(UPSCALERS[i],
+                    physicalDevice.getInstance().address(), physicalDevice.address());
+                if (required == null) {
+                    continue;
+                }
+                Set<String> extensions = new LinkedHashSet<>(List.of(required));
+                // Buffer device address is core in Vulkan 1.2 and vanilla's 1.2 struct enables it;
+                // the EXT form must not be enabled alongside it.
+                extensions.remove("VK_EXT_buffer_device_address");
+                sets.add(new FeatureSet("Radiance " + UPSCALER_NAMES[i], extensions, Set.of()));
+            }
+        } catch (UnsatisfiedLinkError nativeNotLoaded) {
+            // See upscalerInstanceExtensions().
+        }
         return sets;
     }
 
