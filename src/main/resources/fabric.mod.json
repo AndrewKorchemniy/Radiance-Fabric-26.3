@@ -22,6 +22,9 @@
     ],
     "main": [
       "com.radiance.Radiance"
+    ],
+    "sodium:config_api_user": [
+      "com.radiance.client.mod_support.sodium.SodiumConfigMenu"
     ]
   },
   "mixins": [
