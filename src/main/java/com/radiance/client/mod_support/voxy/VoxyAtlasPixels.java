@@ -24,13 +24,17 @@ public record VoxyAtlasPixels(int[] pixels, int width, int height) {
             try {
                 NativeImage image = contents.byMipLevel[0];
                 int[] source = image.getPixelsABGR();
+                // Sprites are stitched with a border of padding texels: UVs (and so Voxy's
+                // rasteriser) address the content at u0/v0, not at getX()/getY().
+                int originX = Math.round(sprite.getU0() * width);
+                int originY = Math.round(sprite.getV0() * height);
                 for (int y = 0; y < contents.height(); y++) {
-                    int row = sprite.getY() + y;
+                    int row = originY + y;
                     if (row < 0 || row >= height) { continue; }
-                    int columns = Math.min(contents.width(), width - sprite.getX());
-                    if (columns > 0) {
+                    int columns = Math.min(contents.width(), width - originX);
+                    if (columns > 0 && originX >= 0) {
                         System.arraycopy(source, y * image.getWidth(), pixels,
-                            row * width + sprite.getX(), columns);
+                            row * width + originX, columns);
                     }
                 }
             } catch (RuntimeException exception) {
