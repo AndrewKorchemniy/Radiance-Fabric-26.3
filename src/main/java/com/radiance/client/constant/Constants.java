@@ -112,11 +112,14 @@ public class Constants {
         ENTITY_PBR_TRIANGLE(PBRVertexFormats.ENTITY_PBR_TRIANGLE.vanillaFormat(), 12),
         CHUNK_PBR_TRIANGLE(PBRVertexFormats.CHUNK_PBR_TRIANGLE.vanillaFormat(), 13);
 
+        // In 26.3 BLOCK and POSITION_COLOR_TEX_LIGHTMAP have the same elements, so they compare equal.
+        // Native decodes both layouts identically; the first declared value wins.
         private static final Map<VertexFormat, Integer>
             BY_VERTEX_FORMAT =
             Collections.unmodifiableMap(Arrays.stream(values())
                 .collect(
-                    Collectors.toMap(VertexFormats::getVertexFormat, VertexFormats::getValue)));
+                    Collectors.toMap(VertexFormats::getVertexFormat, VertexFormats::getValue,
+                        (first, second) -> first)));
 
         private final VertexFormat vertexFormat;
         private final int value;
