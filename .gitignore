@@ -129,3 +129,4 @@ libxess*
 # Docs / Markdown
 *.md
 *.markdown
+!PORTING.md
