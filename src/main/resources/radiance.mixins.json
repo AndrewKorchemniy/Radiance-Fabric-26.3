@@ -72,7 +72,17 @@
     "mod_support.distant_horizons.MinecraftRenderWrapperMixins",
     "mod_support.distant_horizons.LodRenderSectionMixins",
     "mod_support.distant_horizons.LodBufferContainerMixins",
-    "mod_support.distant_horizons.FullDataToRenderDataTransformerMixins"
+    "mod_support.distant_horizons.FullDataToRenderDataTransformerMixins",
+    "mod_support.voxy.MinecraftBackendMixins",
+    "mod_support.voxy.VoxyClientMixins",
+    "mod_support.voxy.VoxyConfigMixins",
+    "mod_support.voxy.source.BiomeUploadResultMixins",
+    "mod_support.voxy.source.ModelBakeResultUploadMixins",
+    "mod_support.voxy.source.ModelBakerySubsystemMixins",
+    "mod_support.voxy.source.ModelFactoryMixins",
+    "mod_support.voxy.source.ModelManagerMixins",
+    "mod_support.voxy.source.SoftwareModelTextureBakeryMixins",
+    "mod_support.voxy.source.TextureAtlasSpritesAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

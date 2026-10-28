@@ -13,7 +13,7 @@ and has to be ported alongside it.
 | M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`). Not run in game: that needs M3 |
 | M3 MCVR native port | Not started. Native-side requirements collected below under "What M3 has to change" |
 | M4 Vanilla world rendering in game | Not started |
-| M5 Voxy integration | Not started |
+| M5 Voxy integration | Java side written and audited with and without DH; in-game untested. Needs native work (tile alpha) and a Sodium terrain decision, see M5 |
 | M6 Distant Horizons integration | Mixins and vertex layout verified; in-game untested |
 | M7 Release workflow | Not started |
 
@@ -314,24 +314,116 @@ What the Java side now expects of native, collected during M2:
 
 ### M5 Voxy integration
 
-- Voxy 0.2.20-beta supports 26.3 on Fabric.
-- The Distant Horizons integration
-  (`client/mod_support/distant_horizons`, `mixins/mod_support/distant_horizons`,
-  ~1,000 lines) intercepts DH's CPU-side LOD buffers, converts them to
-  Radiance's 40-byte vertex format, and uploads them as MCVR geometry.
-- Voxy builds and draws its LODs on the GPU, so there are probably no CPU
-  buffers to intercept. Confirm against Voxy's 26.3 source before choosing one
-  of these:
-  1. Re-mesh Voxy's LOD data on the CPU into Radiance's vertex format. This is
-     simplest and matches the DH path, but costs CPU time.
-  2. Share Voxy's GPU buffers with MCVR. Since vanilla and MCVR share one Vulkan
-     device after M2, this is a buffer handoff rather than cross-API interop,
-     provided Voxy runs on the renderpearl API rather than raw OpenGL.
-  3. Read back Voxy's GPU geometry. This is a fallback only.
-- Voxy becomes an optional dependency (`compileOnly`, a `suggests` entry in
-  `fabric.mod.json`) behind a mixin plugin that only applies when Voxy is loaded.
-- Done when LODs show up in ray-traced lighting and reflections with no seams
-  at the vanilla render distance boundary.
+Targets Voxy 0.2.20-beta (commit 5bf3335), checked against its source and jar.
+
+#### How Voxy works on 26.3
+
+- **Storage.** A `WorldEngine` per dimension holds a pyramid of 32x32x32 sections
+  (`long` per voxel: block id, biome id, light), level 0 (1 block per voxel) to
+  level 4 (16 blocks). Chunk ingest, saving, and `dirtyCallback` section events
+  are all CPU and GL-free.
+- **Meshing is on the CPU.** `RenderGenerationService` / `RenderDataFactory`
+  greedy-mesh a section into 64-bit quads (`BuiltSection`): face, size, voxel
+  position, model id, biome id, light. Block models are baked on the CPU too
+  (`ModelFactory` with a software rasteriser) into 6 16x16 face images per model
+  plus a metadata word; only the *upload* of those is GL.
+- **Rendering is raw OpenGL 4.6** (MDIC, compute culling, Hi-Z, `GlBuffer`...),
+  and LOD *selection* happens on the GPU (hierarchical occlusion traversal). It
+  hooks Sodium (hard `depends` on Sodium 0.9.2/0.9.3) and its `MixinMinecraft`
+  refuses a Vulkan device outright.
+
+#### Design chosen: take Voxy's CPU mesh, convert it, select LODs on the CPU
+
+Closest to the DH path and the least fragile: nothing is read back from the GPU
+and no render hook is replicated. Voxy keeps doing ingest, storage, model baking
+and meshing; Radiance replaces its OpenGL renderer.
+
+- `VoxyMesh` turns each `BuiltSection` quad into 4 chunk PBR vertices by
+  repeating the arithmetic of Voxy's `quads3.vert` (face rectangle and depth from
+  the model's face word, size, 1 voxel = 2^lod blocks). Vertices are relative to
+  the section corner; light, normal and winding follow the DH conversion.
+- `VoxyModels` mirrors what Voxy would upload to the GPU (model words, face
+  images, biome tint table) by draining `ModelFactory`'s upload queue, and turns
+  each (model, face, tint) into a Vista tile: pixel / average colour, with the
+  average (times tint) as the vertex colour. Tiles go in `VistaTileAtlas`
+  (the same 4096-wide, 16x16, 5-mip layout as DH's texture, tile 0 = none).
+- `VoxyWorld` picks sections on a background thread every 100 ms: level 4
+  sections within `sectionRenderDistance` of the camera, split into their
+  children while the camera is within `4 * section width` (`-Dradiance.voxy.detail`).
+  A parent stays until all its children are built. It remeshes dirty sections
+  after 0.5 s (level 0) or 2 s, and keeps the render list to ids that native
+  holds. `VoxyColumns` supplies the `VistaTerrain` border columns.
+- Mixins (`mixins/mod_support/voxy`):
+  `MinecraftBackendMixins` (priority 5000, outermost wrap of `createDevice`, so
+  Voxy's Vulkan refusal is bypassed; confirmed in exported bytecode),
+  `VoxyClientMixins` (replaces `VoxyClient.initVoxyClient`: registers the
+  instance factory without any GL), `VoxyConfigMixins` (`isRenderingEnabled`
+  false, so Voxy never builds its renderer). Under `.../voxy/source`, applied only
+  when Voxy is the Vista source: `ModelFactoryMixins`, `ModelBakeResultUploadMixins`,
+  `BiomeUploadResultMixins` (read bakes off the upload queue),
+  `ModelBakerySubsystemMixins` (skip the GL `ModelStore`),
+  `SoftwareModelTextureBakeryMixins` (block atlas from sprite CPU images instead
+  of a GL readback), `ModelManagerMixins` (resource reload), `TextureAtlasSpritesAccessor`.
+- **DH and Voxy together:** Distant Horizons wins (`ModSupport.VOXY_SOURCE =
+  VOXY && !DISTANT_HORIZONS`). Voxy is then left without a factory (no instance,
+  no ingest) and a warning is logged; the Vulkan-device and init mixins still
+  apply so Voxy cannot break startup.
+- Gating: `ModSupport.VOXY` needs exactly 0.2.20-beta (anything else throws at
+  startup like DH); `fabric.mod.json` has `suggests` and `breaks` for it.
+
+#### Dev setup
+
+`build.gradle` has Voxy as `compileOnly` and `localRuntime`, plus Sodium 0.9.3-beta.1
+in `localRuntime` because Voxy cannot load without it. DH stays in `localRuntime`
+by default; pass `-PradianceWithoutDistantHorizons` to drop it. The Voxy source
+mixins are only applied (and audited) in that configuration:
+
+```sh
+./gradlew runAuditMixins                                  # DH + Voxy + Sodium: DH is the source
+./gradlew runAuditMixins -PradianceWithoutDistantHorizons # Voxy + Sodium: Voxy is the source
+```
+
+Both print "Radiance mixin audit passed". All targets were also checked with
+`javap` against the 0.2.20-beta jar.
+
+#### Blocker to decide: Sodium
+
+Voxy 26.3 hard-depends on Sodium and Sodium replaces vanilla's section manager
+(it nulls `ViewArea`, uses its own chunk builder). Radiance captures near terrain
+from vanilla's `SectionCompiler`/`ViewArea`, so with Sodium installed near
+terrain will not reach MCVR. Voxy can't be run without Sodium. Radiance needs
+either a Sodium terrain capture (a new milestone) or to accept that Voxy
+support only works once that exists. Sodium itself supports the Vulkan backend.
+
+#### Native requirements for Voxy data
+
+All through the existing `VistaProxy` JNI (same contract as DH), plus:
+
+1. **Tile alpha as cut-out.** Tile alpha is texture coverage (0 for cut-out
+   texels). `vistaAlbedo` should also return the tile alpha and multiply it into
+   the surface alpha for cut-out and transparent alpha modes (packedData bits 8-11
+   are 1 for cut-out). Until then sparse cut-out faces (plants, fences, less than
+   50% coverage) are skipped; `-Dradiance.voxy.sparseCutouts=true` emits them and
+   they render as flat average-colour quads.
+2. Section sizes are 32 << lod blocks (32 to 512), x/z multiples of 32, y a
+   multiple of 32; at most 262,144 quads per call. Expect thousands of ids in the
+   render list (DH has far fewer); check Vista instance limits in `world_prepare`.
+3. Voxy emits one quad per face, not two-sided; plants and double-sided models are
+   not duplicated, so Vista geometry should not be back-face culled.
+4. Water is textureID `0x800c0000 | tile` as for DH, but the water surface is
+   already indented by the model's depth word, so the DH `-(1/9 + 0.001)` offset
+   is not applied.
+5. Neighbouring sections of different levels meet without skirts, so T-junction
+   cracks at LOD borders are possible.
+
+#### Not verified
+
+Everything in game: no GL calls were removed from the Voxy paths by test, only by
+reading. Specifically unverified: `UnsafeManager.allocateInstance(ModelStore)`,
+the sprite-based atlas readback (assumes sprite images are not released), that no
+other Voxy code touches GL at runtime, Sodium running beside Radiance, tile
+quality and tinting, LOD selection cost and thresholds, seams against near chunks,
+and the shutdown order (`VoxyWorld.close` runs before Voxy's session shutdown).
 
 ### M6 Distant Horizons integration
 

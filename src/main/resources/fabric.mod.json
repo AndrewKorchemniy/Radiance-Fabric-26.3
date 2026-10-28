@@ -33,8 +33,12 @@
     "minecraft": "${minecraft_version}",
     "java": ">=25"
   },
+  "suggests": {
+    "voxy": "0.2.20-beta"
+  },
   "breaks": {
-    "distanthorizons": ["<3.3.4", ">3.3.4"]
+    "distanthorizons": ["<3.3.4", ">3.3.4"],
+    "voxy": ["<0.2.20-beta", ">0.2.20-beta"]
   },
   "accessWidener": "radiance.accesswidener"
 }

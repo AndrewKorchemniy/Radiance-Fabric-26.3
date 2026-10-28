@@ -20,6 +20,13 @@ public class MixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.startsWith("com.radiance.mixins.mod_support.distant_horizons.")) {
             return ENABLED && ModSupport.DISTANT_HORIZONS;
         }
+        // The Voxy source mixins feed Vista; the rest only keep Voxy's OpenGL renderer from running.
+        if (mixinClassName.startsWith("com.radiance.mixins.mod_support.voxy.source.")) {
+            return ENABLED && ModSupport.VOXY_SOURCE;
+        }
+        if (mixinClassName.startsWith("com.radiance.mixins.mod_support.voxy.")) {
+            return ENABLED && ModSupport.VOXY;
+        }
         return ENABLED;
     }
 
