@@ -224,7 +224,27 @@ public abstract class WorldRendererMixins {
             projectionMatrix.scale(1.0F / skew, 1.0F, 1.0F);
             projectionMatrix.rotate(-angle, axis);
         }
-        return projectionMatrix;
+        return radiance$toOpenGlDepth(projectionMatrix);
+    }
+
+    /**
+     * 26.3's projection maps depth to [0, 1] reversed (near to 1, far to 0), but native expects the
+     * OpenGL convention 1.21.4 handed it, [-1, 1] with near at -1, and converts to Vulkan itself.
+     * Rebuild the depth rows from the near and far planes the reversed matrix encodes.
+     */
+    @Unique
+    private static Matrix4f radiance$toOpenGlDepth(Matrix4f reversed) {
+        float a = reversed.m22();
+        float b = reversed.m32();
+        if (reversed.m23() != -1.0F || b <= 0.0F) {
+            return reversed;
+        }
+        float near = b / (1.0F + a);
+        float far = a > 1.0E-9F ? b / a : 65536.0F;
+        Matrix4f projection = new Matrix4f(reversed);
+        projection.m22(-(far + near) / (far - near));
+        projection.m32(-2.0F * far * near / (far - near));
+        return projection;
     }
 
     @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
