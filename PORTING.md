@@ -13,7 +13,8 @@ and has to be ported alongside it.
 | M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`). Not run in game: that needs M3 |
 | M3 MCVR native port | Not started. Native-side requirements collected below under "What M3 has to change" |
 | M4 Vanilla world rendering in game | Not started |
-| M5 Voxy integration | Java side written and audited with and without DH; in-game untested. Needs native work (tile alpha) and a Sodium terrain decision, see M5 |
+| M5 Voxy integration | Java side written and audited with and without DH; in-game untested. Needs native work (tile alpha), see M5 |
+| M5a Sodium compatibility | Near-terrain capture from Sodium's chunk builder written and audited (Sodium 0.9.2 and 0.9.3-beta.1); in-game untested, no new native requirements, see M5a |
 | M6 Distant Horizons integration | Mixins and vertex layout verified; in-game untested |
 | M7 Release workflow | Not started |
 
@@ -386,14 +387,10 @@ mixins are only applied (and audited) in that configuration:
 Both print "Radiance mixin audit passed". All targets were also checked with
 `javap` against the 0.2.20-beta jar.
 
-#### Blocker to decide: Sodium
+#### Sodium
 
-Voxy 26.3 hard-depends on Sodium and Sodium replaces vanilla's section manager
-(it nulls `ViewArea`, uses its own chunk builder). Radiance captures near terrain
-from vanilla's `SectionCompiler`/`ViewArea`, so with Sodium installed near
-terrain will not reach MCVR. Voxy can't be run without Sodium. Radiance needs
-either a Sodium terrain capture (a new milestone) or to accept that Voxy
-support only works once that exists. Sodium itself supports the Vulkan backend.
+Voxy 26.3 hard-depends on Sodium and Sodium replaces vanilla's section manager,
+so near terrain needs its own capture: see M5a below.
 
 #### Native requirements for Voxy data
 
@@ -424,6 +421,146 @@ the sprite-based atlas readback (assumes sprite images are not released), that n
 other Voxy code touches GL at runtime, Sodium running beside Radiance, tile
 quality and tinting, LOD selection cost and thresholds, seams against near chunks,
 and the shutdown order (`VoxyWorld.close` runs before Voxy's session shutdown).
+
+### M5a Sodium compatibility
+
+Targets Sodium 0.9.2 and 0.9.3-beta.1 for 26.3 (the classes touched are identical in both;
+read against the `mc26.3-0.9.3-beta.1` source and `javap`ed in both jars). Needed because Voxy
+hard-depends on Sodium, and generally for the most common 26.3 rendering mod.
+
+#### How Sodium 0.9.3 manages sections (what matters here)
+
+- **No vanilla section structures.** `LevelRendererMixin.invalidateCompiledGeometry` is cancelled:
+  `levelRenderer.viewArea` becomes an `IgnoringViewArea` (a 1-section `ViewArea` whose
+  `getRenderSection*` return null) and `sectionRenderDispatcher` an `IgnoringSectionRenderDispatcher`
+  with no compiler. Nothing ever calls vanilla's `SectionCompiler`, `CompileTask`,
+  `SectionUpdateTracker` (its `setSectionDirty` & co. are `@Overwrite`n into
+  `SodiumWorldRenderer.scheduleRebuild*`) or `RenderSection.setSectionNode`. Every one of the
+  existing vanilla-terrain mixins would be wrong under Sodium, and `ViewArea`'s constructor mixin
+  would even re-initialise native's grid with a 1-section ring.
+- **Sections** live in `RenderSectionManager`: a hash map `SectionStorage` keyed by `SectionPos`
+  (no fixed grid), created by `onSectionAdded` once `ChunkTracker` reports a chunk ready (block
+  and light data, neighbours), removed by `onSectionRemoved`. Air-only sections get
+  `BuiltSectionInfo.EMPTY` immediately and never get a task.
+- **Meshing**: `createRebuildTask` snapshots 5x5x5 sections into a pooled `LevelSlice` (a
+  `BlockAndTintGetter`) on the main thread; a `ChunkBuilderMeshingTask` runs on one of Sodium's
+  `ChunkBuilder` worker threads (or on the main thread when a blocking task is stolen), producing a
+  `ChunkBuildOutput` (`BuiltSectionInfo` with flags, visibility, **block entities**, plus mesh parts).
+  `processChunkBuilds` (main thread) applies it: `RenderSection.setInfo`, then uploads to
+  `RenderRegion` arenas.
+- **Scheduling.** Rebuilds are `pendingUpdate` flags on `RenderSection`; which sections get a task is
+  decided by the async `CullTask`, whose `TaskCollectingTree` ("WIDE": no frustum, no fog culling,
+  only occlusion culling) lists everything within render distance that is reachable through the
+  occlusion graph. So Sodium already builds sections behind the camera, but not enclosed ones
+  (caves), and only within the render distance sphere.
+- **Where it runs in the frame.** All of the terrain update is in `SodiumWorldRenderer.setupTerrain`,
+  called from `LevelExtractor.extract` (injected before `consumeFrustumUpdate`), i.e. before
+  `LevelRenderer.render` and outside the frame graph: chunk events, camera tracking, cull task
+  consumption, task submission, `processChunkBuilds`, GPU uploads, render lists, animated sprites.
+  `LevelRenderer.render` calls `prepareChunkRenders` (wrapped to `prepareChunkRendering`, pure CPU)
+  before the frame graph, `endFrame` after. Only the actual draws (`SodiumChunkSection.renderGroup`/
+  `renderOit` -> `drawChunkLayer` -> `uniformBufferManager.update` + `chunkRenderer.render`) are
+  inside the main pass that `LevelRendererFrameMixins` skips, so skipping `FrameGraphBuilder.execute`
+  needs no Sodium-specific handling. The loading-screen callback goes through
+  `isSectionCompiledAndVisible` (`@Overwrite`n to `SodiumWorldRenderer.isSectionReady`), also outside
+  the graph.
+- **Things Sodium changes that Radiance's other hooks assume:** it cancels
+  `LevelExtractor.extractVisibleBlockEntities` and collects block entities from its own visible
+  render lists; it culls entities by section visibility (`EntityRenderer.shouldRender` wrap); it
+  `@Overwrite`s `countRenderedSections` and `hasRenderedAllSections`; it replaces the cloud mesh
+  builder (`CloudRenderer.buildMesh`, which Radiance never reaches, `prepare` is cancelled first).
+
+#### Design
+
+Sodium's own mesh stays (and is uploaded, never drawn); Radiance meshes every section a second time
+on the same worker from the same block snapshot and publishes it through `ChunkProxy`, so nothing
+about native's contract changes.
+
+- **Meshing** (`TerrainMesher`, extracted from `SectionBuilderMixins` so both paths share it):
+  `ChunkBuilderMeshingTaskMixins` injects at every `RETURN` of
+  `ChunkBuilderMeshingTask.execute`; `SodiumTerrain.onSectionMeshed` runs
+  `ModelBlockRenderer(ambientOcclusion=false)` + vanilla `FluidRenderer` over Sodium's `LevelSlice`
+  (quads -> 40-byte chunk PBR vertices, tint emission, `FluidRendererMixins` for fluid normals
+  all unchanged), into a per-worker `SectionBufferBuilderPack`, then `ChunkProxy.sodiumPublish`
+  (same `publishCompiled` as the vanilla path: Vista border columns, `TransferredBuildBuffer`,
+  `rebuildSingleNative` / `invalidateSingle`). A mesh exception is logged, not rethrown into
+  Sodium's worker.
+- **Native's ring.** Native wants slots addressed `(z * sizeY + y) * sizeXZ + x` (x and z modulo
+  `2R+1`, `R` = render distance), which Sodium doesn't have. `ChunkProxy.sodium*` keeps that ring:
+  `sodiumInit` (from `SodiumWorldRenderer.initRenderer`, calls `initNative`), `sodiumReposition`
+  (at the head of `setupTerrain`, every frame: `updateSectionPosNative` plus `relocateSingle` with a
+  new generation for every slot that now stands for another section), `sodiumBegin` /
+  `sodiumPublish` (worker; the slot generation seen when meshing started must still be current,
+  so results for sections that left the ring or were unloaded are dropped), `sodiumInvalidate`
+  (empty slot: air-only sections at `onSectionAdded`, a rebuild with no task, e.g. a section that
+  lost all its blocks), `sodiumRelease` (`onSectionRemoved`: relocate to the same place, which drops
+  the data), `sodiumSectionReady`. The vanilla slot type `ChunkSlot` got an `owner` object instead of
+  a `RenderSection`; no JNI signature changed.
+- **Sections entering the ring** (camera moved, or a reload) were meshed by Sodium without Radiance
+  capturing them: `IRenderSectionManagerExt.radiance$resync` (a method added to
+  `RenderSectionManager`) invalidates air-only ones and calls Sodium's `scheduleRebuild` for built
+  ones. Results dropped for being outside the ring are queued and retried for 600 frames until
+  Sodium marks the section built (covers a result that finishes before the move but is applied
+  after it).
+- **Off-screen sections.** `SodiumWorldRendererMixins` forces `useOcclusionCulling` to false so
+  `CullTask` lists every section in range, also enclosed ones, matching what the vanilla path
+  (every dirty section) built; `-Dradiance.sodium.occlusionCulling=true` restores Sodium's culling.
+  Tasks are still scheduled by Sodium's budgets (not `Options.chunkBuildingBatchSize`), and `important`
+  for native is Sodium's blocking-task flag or distance under 768 (as in the vanilla path).
+- **Block entities.** `RenderSectionMixins` records `BuiltSectionInfo` per section at `setInfo`
+  (`SodiumBlockEntities`); `extractBlockEntities` is replaced with a walk over all of them (culled
+  and global), the Sodium counterpart of `BlockEntitySectionCache`.
+- **Entities.** `SodiumWorldRenderer.isEntityVisible` is forced true: entities stay frustum-culled
+  only (the vanilla `loosenEntityFiltering` redirect still applies).
+- **Readiness.** `isSectionReady` also requires `ChunkProxy.sodiumSectionReady` (native has the BLAS
+  for the section if it has geometry), for entity visibility and the loading screen, as in the
+  vanilla path.
+- **Gating.** `ModSupport.SODIUM` is true for exactly Sodium `0.9.2+mc26.3` or `0.9.3-beta.1+mc26.3`;
+  any other Sodium version fails `ModSupport.initialize` (and `fabric.mod.json` has a `breaks`
+  range, `<0.9.2` and `>0.9.3-beta.1`). `MixinPlugin` applies `mixins/mod_support/sodium/**` only then,
+  and **does not apply** `BuiltChunkStorageMixins`, `ChunkBuilderBuiltChunkMixins`,
+  `LevelExtractorSectionUpdatesMixins`, `SectionBuilderMixins`, `SectionCompileTaskMixins` and
+  `SectionDirtyStateMixins` (vanilla's compile path). `WorldRendererMixins` and
+  `LevelExtractorMixins` stay but return early under Sodium. `ChunkProxy.rebuildAll` (chunk
+  emission toggle) goes to `SodiumTerrain.rebuildAll`, which `scheduleRebuild`s the ring.
+
+Files: `client/mod_support/sodium/{SodiumTerrain,SodiumBlockEntities}`,
+`client/proxy/world/TerrainMesher`, `ChunkProxy` (`sodium*` entry points),
+`mixins/mod_support/sodium/{SodiumWorldRendererMixins,RenderSectionManagerMixins,
+ChunkBuilderMeshingTaskMixins,RenderSectionMixins}`, `IRenderSectionManagerExt`.
+
+#### Audit
+
+`build.gradle` has Sodium as `compileOnly` (artifact from the Modrinth maven, same as Voxy's runtime
+copy). `./gradlew runAuditMixins` (DH + Voxy + Sodium), with `-PradianceWithoutDistantHorizons`, with
+`-PradianceSodiumVersion=mc26.3-0.9.2-fabric` and with `-PradianceWithoutSodium` (drops Voxy too, and
+audits the vanilla terrain mixins, which Sodium disables) all print "Radiance mixin audit passed". The
+Sodium mixins' injection points and their bytecode (`-Dmixin.debug.verify`) were checked, and
+`javap` of 0.9.2 and 0.9.3-beta.1 for `SodiumWorldRenderer`, `RenderSectionManager`,
+`ChunkBuilderMeshingTask`, `RenderSection`, `LevelSlice`, `ChunkBuildContext` and `BlockRenderCache`
+gives identical signatures.
+
+#### Native requirements
+
+None new: the same `initNative`, `updateSectionPosNative`, `relocateSingle`, `rebuildSingleNative`,
+`invalidateSingle` and `isChunkReady` with the same grid layout. Differences native may notice: the
+grid is sized from the render distance and every slot is relocated at the first camera update after a
+(re)load (100k+ `relocateSingle` calls at high render distances, as the `ViewArea` constructor did on
+the vanilla path); `invalidateSingle` is called with an empty terrain (count 0, address 0) for empty
+sections; sections arrive in Sodium's order, not vanilla's.
+
+#### Not verified
+
+Everything in game (needs M3/M4): that the extra meshing keeps up with Sodium's workers and budgets
+(Sodium's job estimator sees Radiance's time as part of the task), that Sodium's uploads and
+staging-buffer bookkeeping are fine with no draw ever happening, that tints resolved through Sodium's
+`LevelSlice.getBlockTint` (its own biome blend cache) match vanilla's, the `ModifyVariable` on
+`setupTerrain`'s first boolean (applied, but its effect is not observed), translucent sections
+(sent unsorted, as in the vanilla path), Fabric API renderer (FRAPI) models drawn by Sodium's
+`runChunkMeshAppenders` (Radiance meshes with vanilla's `ModelBlockRenderer`, which may not honour
+them), sections beyond Sodium's own build distance (corners of the square ring), and the
+interaction with Voxy's Sodium hooks. A possible follow-up is to skip Sodium's own block meshing
+(its output is never drawn); that needs care since its flags/visibility/block entities come from it.
 
 ### M6 Distant Horizons integration
 
