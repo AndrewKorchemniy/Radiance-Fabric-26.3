@@ -249,14 +249,40 @@ tasks.register("verifyProfilerPackaging") {
             if (!profilerEnabled && !profilerEntries.isEmpty()) {
                 throw new GradleException("Release JAR contains profiler classes")
             }
+            // Look at what the bytecode actually uses. javac 25 keeps an unused constant-pool entry for
+            // the class of an inlined constant (Profiler.ENABLED), so searching the raw class bytes
+            // would flag every class that merely checks the flag.
+            def profilerPackage = "com/radiance/client/profiler/"
             def referencedBy = zip.entries().findAll { entry ->
-                if (!entry.name.endsWith(".class")
-                    || entry.name.startsWith("com/radiance/client/profiler/")) {
+                if (!entry.name.endsWith(".class") || entry.name.startsWith(profilerPackage)) {
                     return false
                 }
-                def bytes = zip.getInputStream(entry).bytes
-                return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
-                    .contains("com/radiance/client/profiler/")
+                boolean references = false
+                def methodVisitor = new org.objectweb.asm.MethodVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                    @Override
+                    void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
+                        references |= owner.startsWith(profilerPackage)
+                    }
+
+                    @Override
+                    void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
+                        references |= owner.startsWith(profilerPackage)
+                    }
+
+                    @Override
+                    void visitTypeInsn(int opcode, String type) {
+                        references |= type.startsWith(profilerPackage)
+                    }
+                }
+                new org.objectweb.asm.ClassReader(zip.getInputStream(entry).bytes).accept(
+                    new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                        @Override
+                        org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String descriptor,
+                            String signature, String[] exceptions) {
+                            return methodVisitor
+                        }
+                    }, org.objectweb.asm.ClassReader.SKIP_DEBUG)
+                return references
             }
             if (profilerEnabled && referencedBy.isEmpty()) {
                 throw new GradleException("Profile JAR classes do not reference profiler code")
