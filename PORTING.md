@@ -647,6 +647,11 @@ Useful dev runs:
   the remaining suspect is how NRD and the path tracer's history treat pixels
   that alternate between leaf and sky every frame. Turning jitter off is a
   workaround at the cost of aliased edges.
+- **Nether portals** now let light through, but the renderer treats them like
+  tinted glass, so what is behind is filtered through the portal's purple and
+  hard to make out; vanilla blends it instead. Their glow was lowered to 30%.
+- **Voxy border slivers.** A thin strip of missing faces or shadow can appear
+  where vanilla terrain meets Voxy terrain; likely on Voxy's side.
 - **Image layouts.** Native samples vanilla's textures, which vanilla keeps in
   `VK_IMAGE_LAYOUT_GENERAL`, through descriptors that declare
   `SHADER_READ_ONLY_OPTIMAL`. This works on NVIDIA; validation would flag it.
