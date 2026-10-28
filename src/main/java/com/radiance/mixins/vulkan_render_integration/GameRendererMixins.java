@@ -1,176 +1,99 @@
 package com.radiance.mixins.vulkan_render_integration;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
-import com.mojang.blaze3d.ProjectionType;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.resource.CrossFrameResourcePool;
-import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
-import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.radiance.client.proxy.vulkan.BufferProxy;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.radiance.client.proxy.vulkan.RendererProxy;
 import com.radiance.client.proxy.world.EntityProxy;
+import com.radiance.client.vulkan.WorldComposite;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
-import net.minecraft.client.Camera;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.ItemInHandRenderer;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderBuffers;
-import net.minecraft.client.renderer.ScreenEffectRenderer;
+import net.minecraft.client.renderer.state.GameRenderState;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.PlayerRenderState;
 import org.joml.Matrix4f;
-import org.joml.Matrix4fStack;
 import org.joml.Matrix4fc;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixins implements IGameRendererExt {
 
-    @Shadow
-    @Final
-    public ItemInHandRenderer itemInHandRenderer;
-    @Mutable
-    @Final
-    @Shadow
-    private LightTexture lightTexture;
     @Final
     @Shadow
     private Minecraft minecraft;
     @Final
     @Shadow
-    private CrossFrameResourcePool resourcePool;
-    @Shadow
-    @Final
-    private RenderBuffers renderBuffers;
-    @Shadow
-    @Final
-    private Camera mainCamera;
+    private GameRenderState gameRenderState;
     @Unique
-    private Matrix4f viewMatrix;
+    private final Matrix4f radiance$viewMatrix = new Matrix4f();
 
     @Shadow
-    public abstract Matrix4f getProjectionMatrix(float fovDegrees);
+    public abstract RenderTarget mainRenderTarget();
 
-    @Shadow
-    protected abstract float getFov(Camera camera, float tickDelta, boolean changingFov);
-
-    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
-        at = @At(value = "INVOKE", target = "Lorg/joml/Matrix4f;mul(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;", remap = false))
-    public Matrix4f cancelPTimesB(Matrix4f instance, Matrix4fc right) {
-        return instance;
+    @Inject(method = "render()V", at = @At("HEAD"))
+    private void radiance$shouldRenderWorld(CallbackInfo ci) {
+        RendererProxy.shouldRenderWorld(this.gameRenderState.shouldRenderLevel
+            && this.minecraft.isGameLoadFinished() && this.minecraft.level != null);
     }
 
-    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
+    /**
+     * Vanilla folds view bobbing and hurt shake into the projection (P * B). The ray tracer needs a
+     * plain projection, so B moves into the view matrix instead (B * V) and the projection is left
+     * alone. The portal and nausea warp applied afterwards stays in the projection, as on 1.21.4.
+     */
+    @WrapOperation(method = "renderLevel()V",
+        at = @At(value = "INVOKE", target = "Lorg/joml/Matrix4f;mul(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
+            ordinal = 0, remap = false))
+    private Matrix4f radiance$moveBobIntoView(Matrix4f projection, Matrix4fc bob,
+        Operation<Matrix4f> original, @Local CameraRenderState cameraState) {
+        this.radiance$viewMatrix.set(bob).mul(cameraState.viewRotationMatrix);
+        return projection;
+    }
+
+    /**
+     * After vanilla's level pass (which now only extracts and compiles, see
+     * {@code LevelRendererFrameMixins}) and before the 3D HUD, build this frame's entities and put
+     * the ray-traced world into the main target, so the hand overlay, screen effects and GUI land on
+     * top of it.
+     */
+    @Inject(method = "renderLevel()V",
         at = @At(value = "INVOKE",
-            target =
-                "Lnet/minecraft/client/renderer/LevelRenderer;renderLevel(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lnet/minecraft/client/DeltaTracker;ZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"))
-    public void performBTimesV(LevelRenderer instance,
-        GraphicsResourceAllocator allocator,
-        DeltaTracker tickCounter,
-        boolean renderBlockOutline,
-        Camera camera,
-        GameRenderer gameRenderer,
-        Matrix4f viewMatrix,
-        Matrix4f projectionMatrix,
-        @Local boolean shouldRenderBlockOutline,
-        @Local PoseStack matrixStack) {
-        Matrix4f
-            B =
-            new Matrix4f(matrixStack.last()
-                .pose());
-        this.viewMatrix = new Matrix4f(viewMatrix);
-        viewMatrix = new Matrix4f(B.mul(viewMatrix));
-        instance.renderLevel(this.resourcePool, tickCounter, shouldRenderBlockOutline, camera, gameRenderer,
-            viewMatrix, projectionMatrix);
-    }
-
-    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(value = "TAIL"))
-    public void buildEntities(DeltaTracker renderTickCounter, CallbackInfo ci) {
+            target = "Lnet/minecraft/client/renderer/GameRenderer;render3dHud(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lnet/minecraft/client/renderer/state/level/PlayerRenderState;Lnet/minecraft/client/renderer/state/OptionsRenderState;Z)V"))
+    private void radiance$compositeWorld(CallbackInfo ci) {
         EntityProxy.build();
+        WorldComposite.renderWorldInto(this.mainRenderTarget());
     }
 
-    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
-        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
-    public void cancelFramebufferBeginWrite(RenderTarget instance, boolean setViewport) {
-
-    }
-
-    @Inject(method = "renderItemInHand(Lnet/minecraft/client/Camera;FLorg/joml/Matrix4f;)V", at = @At(value = "HEAD"), cancellable = true)
-    public void redirectRenderHand(Camera camera, float tickDelta, Matrix4f matrix4f,
-        CallbackInfo ci) {
+    /**
+     * Radiance traces the first-person hand and held items as part of the world, so vanilla's
+     * raster pass is skipped. The hand uses its own FOV; the ratio lets native draw it with the
+     * world's projection.
+     */
+    @Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
+    private void radiance$traceHand(CameraRenderState cameraState, PlayerRenderState playerState,
+        GpuTextureView depthTextureView, CallbackInfo ci) {
         if (EntityProxy.isEntityNativeTransferEnabled()) {
-            float worldFov = this.getFov(camera, tickDelta, true);
-            float handFov = this.getFov(camera, tickDelta, false);
-            float handProjectionScale =
-                (float) (Math.tan(Math.toRadians(worldFov * 0.5F)) /
-                    Math.tan(Math.toRadians(handFov * 0.5F)));
-            EntityProxy.queueHandRebuild(renderBuffers, tickDelta, itemInHandRenderer,
-                handProjectionScale);
+            // m11 of a perspective projection is 1 / tan(fovY / 2).
+            float worldTanHalfFov = 1.0F / cameraState.projectionMatrix.m11();
+            float handTanHalfFov = (float) Math.tan(Math.toRadians(cameraState.hudFov * 0.5F));
+            EntityProxy.queueHandRebuild(cameraState, playerState,
+                worldTanHalfFov / handTanHalfFov);
         }
         ci.cancel();
     }
 
-    @Redirect(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
-        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
-    public void cancelRenderFramebufferBeginWrite(RenderTarget instance, boolean setViewport) {
-
-    }
-
-    @Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V", at = @At(value = "HEAD"))
-    public void shouldRenderWorld(DeltaTracker tickCounter, boolean tick, CallbackInfo ci) {
-        RendererProxy.shouldRenderWorld(
-            !this.minecraft.noRender && minecraft.isGameLoadFinished() && tick
-                && minecraft.level != null);
-    }
-
-    @Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
-        at = @At(value = "INVOKE",
-            target =
-                "Lnet/minecraft/client/gui/Gui;render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V"))
-    public void renderFirstPersonOverlaysWithGuiProjection(DeltaTracker tickCounter,
-        boolean tick, CallbackInfo ci, @Local GuiGraphics drawContext) {
-        float tickDelta = tickCounter.getGameTimeDeltaPartialTick(true);
-        com.mojang.blaze3d.systems.RenderSystem.backupProjectionMatrix();
-        com.mojang.blaze3d.systems.RenderSystem.setProjectionMatrix(
-            this.getProjectionMatrix(this.getFov(this.mainCamera, tickDelta, false)),
-            ProjectionType.PERSPECTIVE);
-        Matrix4fStack modelViewStack = com.mojang.blaze3d.systems.RenderSystem.getModelViewStack();
-        modelViewStack.pushMatrix();
-        modelViewStack.identity();
-        MultiBufferSource.BufferSource immediate = MultiBufferSource.immediate(
-            new ByteBufferBuilder(1536));
-        try {
-            ScreenEffectRenderer.renderScreenEffect(this.minecraft, new PoseStack(), immediate);
-            immediate.endBatch();
-        } finally {
-            modelViewStack.popMatrix();
-            com.mojang.blaze3d.systems.RenderSystem.restoreProjectionMatrix();
-        }
-    }
-
     @Override
     public Matrix4f radiance$getRotationMatrix() {
-        return viewMatrix;
-    }
-
-    @Redirect(method = "takeAutoScreenshot(Ljava/nio/file/Path;)V",
-        at = @At(value = "INVOKE",
-            target =
-                "Lnet/minecraft/client/Screenshot;takeScreenshot(Lcom/mojang/blaze3d/pipeline/RenderTarget;)Lcom/mojang/blaze3d/platform/NativeImage;"))
-    public NativeImage redirectScreenshot(RenderTarget framebuffer) {
-        return RendererProxy.takeScreenshotWithoutUI();
+        return this.radiance$viewMatrix;
     }
 }

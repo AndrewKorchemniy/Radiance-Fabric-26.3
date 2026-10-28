@@ -1,17 +1,14 @@
 package com.radiance.mixins.vulkan_render_integration;
 
-import com.mojang.blaze3d.pipeline.MainTarget;
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.Window;
-import com.mojang.blaze3d.systems.TimerQuery;
-import com.radiance.client.UnsafeManager;
+import com.mojang.renderpearl.api.device.GpuSurface;
+import com.mojang.renderpearl.backend.vulkan.VulkanGpuSurface;
 import com.radiance.client.option.Options;
 import com.radiance.client.pipeline.Pipeline;
 import com.radiance.client.proxy.vulkan.RendererProxy;
-import com.radiance.client.proxy.vulkan.TextureProxy;
-import com.radiance.client.texture.AuxiliaryTextureReloader;
 import com.radiance.client.proxy.world.ChunkProxy;
-import java.util.Optional;
+import com.radiance.client.texture.AuxiliaryTextureReloader;
+import com.radiance.client.vulkan.VulkanBootstrap;
+import com.radiance.mixins.vulkan_device.FrontendGpuSurfaceAccessor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.main.GameConfig;
@@ -24,39 +21,43 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * Starts and stops the native renderer around vanilla's own Vulkan device. Per-frame acquire, submit
+ * and present go through {@code VulkanGpuSurfaceMixins}, since MCVR owns the swapchain.
+ */
 @Mixin(Minecraft.class)
 public class MinecraftClientMixins {
 
     @Shadow
     @Final
-    private Window window;
+    private GpuSurface windowSurface;
 
     @Shadow
     private ReloadableResourceManager resourceManager;
 
-
-    @Inject(method = "useAmbientOcclusion()Z", at = @At(value = "HEAD"), cancellable = true)
-    private static void disableAmbientOcclusion(CallbackInfoReturnable<Boolean> cir) {
-        cir.setReturnValue(false);
-    }
-
-
-
-    @Redirect(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
-        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;initRenderer(IZ)V"))
-    public void initRenderer(int debugVerbosity, boolean debugSync) {
-        long stackSize = 512 * 1024 * 1024;
-        Runnable myRunnable = () -> {
-            RendererProxy.initRenderer(window);
+    /**
+     * Vanilla creates the window surface right after the device and window, which is the earliest
+     * point where native has everything it needs.
+     */
+    @Inject(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
+        at = @At(value = "FIELD",
+            target = "Lnet/minecraft/client/Minecraft;windowSurface:Lcom/mojang/renderpearl/api/device/GpuSurface;",
+            opcode = Opcodes.PUTFIELD,
+            shift = At.Shift.AFTER))
+    private void radiance$initRenderer(GameConfig gameConfig, CallbackInfo ci) {
+        VulkanGpuSurface surface =
+            (VulkanGpuSurface) ((FrontendGpuSurfaceAccessor) this.windowSurface).radiance$getBackend();
+        // Native renderer initialisation (shader compilation, NRD and upscaler setup) needs far more
+        // stack than the main thread has.
+        long stackSize = 512L * 1024 * 1024;
+        Thread initThread = new Thread(null, () -> {
+            VulkanBootstrap.attachRenderer(surface);
             Pipeline.collectNativeModules();
-        };
-
-        Thread myThread = new Thread(null, myRunnable, "", stackSize);
-        myThread.start();
+        }, "Radiance renderer init", stackSize);
+        initThread.start();
         try {
-            myThread.join();
+            initThread.join();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -65,124 +66,40 @@ public class MinecraftClientMixins {
         Pipeline.build();
     }
 
-    @Redirect(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
-        at = @At(value = "NEW", target = "com/mojang/blaze3d/pipeline/MainTarget"))
-    public MainTarget cancelNewFramebuffer(int width, int height) {
-        return UnsafeManager.INSTANCE.allocateInstance(MainTarget.class);
-    }
-
     @Inject(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
         at = @At(value = "FIELD",
             target = "Lnet/minecraft/client/Minecraft;resourceManager:Lnet/minecraft/server/packs/resources/ReloadableResourceManager;",
             opcode = Opcodes.PUTFIELD,
             shift = At.Shift.AFTER))
-    private void registerAuxiliaryTextureReloader(GameConfig args, CallbackInfo ci) {
+    private void radiance$registerAuxiliaryTextureReloader(GameConfig args, CallbackInfo ci) {
         this.resourceManager.registerReloadListener(new AuxiliaryTextureReloader());
     }
 
-    @Redirect(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
-        at = @At(value = "FIELD",
-            target = "Lnet/minecraft/client/Minecraft;mainRenderTarget:Lcom/mojang/blaze3d/pipeline/RenderTarget;",
-            opcode = org.objectweb.asm.Opcodes.PUTFIELD))
-    public void writeNullFramebuffer(Minecraft instance, RenderTarget value) {
+    /** Native limits the frame rate itself, since frame generation decides when frames are shown. */
+    @Redirect(method = "renderFrame(Z)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/FramerateLimiter;limitDisplayFPS(I)V"))
+    private void radiance$disableVanillaFramerateLimit(int framerateLimit) {
     }
 
-    @Redirect(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
-        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;setClearColor(FFFF)V"))
-    public void cancelSetClearColor(RenderTarget instance, float r, float g, float b, float a) {
-
-    }
-
-    @Redirect(method = "<init>(Lnet/minecraft/client/main/GameConfig;)V",
-        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;clear()V"))
-    public void cancelClear(RenderTarget instance) {
-
-    }
-
-    @Redirect(method = "<init>",
-        at = @At(value = "FIELD",
-            opcode = Opcodes.GETFIELD,
-            target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;width:I",
-            ordinal = 0))
-    public int redirectFramebufferTextureWidth(RenderTarget framebuffer) {
-        return this.window.getWidth();
-    }
-
-    @Redirect(method = "<init>",
-        at = @At(value = "FIELD", opcode = Opcodes.GETFIELD, target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;height:I"),
-        require = 0)
-    public int redirectFramebufferTextureHeight(RenderTarget framebuffer) {
-        return this.window.getHeight();
-    }
-
-
-
-    @Redirect(method = "runTick(Z)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
-    public void cancelFramebufferBeginWrite(RenderTarget instance, boolean setViewport) {
-
-    }
-
-    @Redirect(method = "runTick(Z)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;unbindWrite()V"))
-    public void cancelFramebufferEndWrite(RenderTarget instance, boolean setViewport) {
-        ChunkProxy.waitImportantChunkRebuild();
-        synchronized (TextureProxy.class) {
-            RendererProxy.submitCommandAndPresent();
-            RendererProxy.acquireContext();
-        }
-    }
-
-    @Redirect(method = "runTick(Z)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;blitToScreen(II)V"))
-    public void cancelFramebufferDraw(RenderTarget instance, int width, int height) {
-
-    }
-
-    @Redirect(method = "runTick(Z)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;limitDisplayFPS(I)V"))
-    public void disableFPSLimit(int fps) {
-
-    }
-
-    @Redirect(method = "runTick(Z)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/TimerQuery;getInstance()Ljava/util/Optional;"))
-    public Optional<TimerQuery> disableGLTimerInstance() {
-        return Optional.empty();
-    }
-
-
-
-    @Redirect(method = "resizeDisplay()V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;resize(II)V"))
-    public void cancelFramebufferResize(RenderTarget instance, int width, int height) {
-
-    }
-
-
-
-    @Inject(method = "close()V", at = @At(value = "HEAD"))
-    public void cancelShaderLoaderClose(CallbackInfo ci) {
+    @Inject(method = "close()V", at = @At("HEAD"))
+    private void radiance$saveSettings(CallbackInfo ci) {
         Pipeline.savePipeline();
         Options.overwriteConfig();
     }
 
-
-
+    /**
+     * Native must release its swapchain before vanilla destroys the surface it was built on, and all
+     * of its resources before vanilla destroys the device.
+     */
     @Inject(method = "close()V",
-        at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/renderer/VirtualScreen;close()V"))
-    public void closeNativeRenderer(CallbackInfo ci) {
+        at = @At(value = "INVOKE", target = "Lcom/mojang/renderpearl/api/device/GpuSurface;close()V"))
+    private void radiance$closeNativeRenderer(CallbackInfo ci) {
         RendererProxy.close();
     }
 
-
-
-    @Redirect(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;Z)V",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;runTick(Z)V"))
-    public void cancelRenderAfterStop(Minecraft instance, boolean tick) {
-
-    }
-
-    @Inject(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;Z)V",
-        at = @At(value = "HEAD"))
-    public void resetBuiltChunkNum(Screen disconnectionScreen, boolean transferring,
+    @Inject(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;Z)V", at = @At("HEAD"))
+    private void radiance$resetBuiltChunkCount(Screen screen, boolean keepResourcePacks,
         CallbackInfo ci) {
         ChunkProxy.builtChunkCount = 0;
     }
-
 }

@@ -1,14 +1,10 @@
 package com.radiance.client.proxy.vulkan;
 
-import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
 import com.mojang.renderpearl.backend.vulkan.VulkanQueue;
-import com.radiance.client.constant.Constants;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.MemoryMetricsCollector;
 import com.radiance.client.profiler.Profiler;
-import com.radiance.mixin_related.extensions.vulkan_render_integration.INativeImageExt;
-import net.minecraft.client.Minecraft;
 
 public class RendererProxy {
 
@@ -51,13 +47,41 @@ public class RendererProxy {
         }
     }
 
-    public static native int maxSupportedTextureSize();
+    /**
+     * (Re)creates native's swapchain on vanilla's surface. Called on startup, on resize and when vsync
+     * changes. {@code presentMode} is a {@code GpuSurface.PresentMode} ordinal.
+     *
+     * @return false if the swapchain could not be created; vanilla retries on a later frame
+     */
+    public static native boolean configureSwapchain(int width, int height, int presentMode);
 
-    public static native void acquireContext();
+    public static native boolean isSwapchainSuboptimal();
 
-    public static native void submitCommand();
+    /**
+     * Acquires the next swapchain image and begins native's frame.
+     *
+     * @return false if no image could be acquired, which makes vanilla reconfigure the surface
+     */
+    public static native boolean acquireContext();
 
-    public static native void present();
+    /**
+     * The image holding this frame's final picture (the world composited under vanilla's UI), in
+     * {@code VK_IMAGE_LAYOUT_GENERAL} and stored bottom-up.
+     */
+    public static native void setPresentSource(long vkImage, long vkImageView, int width, int height);
+
+    /**
+     * Records this frame's world rendering, ending with the world written into {@code vkImage}
+     * (vanilla's main color target, in {@code VK_IMAGE_LAYOUT_GENERAL}, stored bottom-up).
+     *
+     * @return the recorded, ended {@code VkCommandBuffer} handle, or 0 when no world is rendered this
+     *     frame
+     */
+    public static native long recordWorldFrame(long vkImage, long vkImageView, int width, int height);
+
+    private static native void submitCommand();
+
+    private static native void present();
 
     public static native int getPresentedFrameRate();
 
@@ -82,30 +106,4 @@ public class RendererProxy {
 
     public static native void shouldRenderWorld(boolean renderWorld);
 
-    public static native void takeScreenshot(boolean withUI, int width, int height, int channel,
-        long pointer);
-
-    public static NativeImage takeScreenshotWithoutUI() {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.RendererProxy.takeScreenshotWithoutUI");
-        }
-        try {
-            Minecraft minecraftClient = Minecraft.getInstance();
-            int
-                width =
-                minecraftClient.getWindow()
-                    .getScreenWidth();
-            int
-                height =
-                minecraftClient.getWindow()
-                    .getScreenHeight();
-            NativeImage nativeImage = new NativeImage(width, height, false);
-            ((INativeImageExt) (Object) nativeImage).radiance$loadFromTextureImageWithoutUI(0, true);
-            return nativeImage;
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
 }

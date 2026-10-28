@@ -1,13 +1,13 @@
 package com.radiance.mixins.client;
 
-import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.Camera;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(GameRenderer.class)
+@Mixin(Camera.class)
 public abstract class GameRendererCameraMixins {
 
     @Shadow

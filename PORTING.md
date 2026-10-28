@@ -208,9 +208,12 @@ Jobs inside deleted code that must survive somewhere else:
   shutdown and saving options.
 - `GameRendererMixins`: the view matrix, per-frame entity build, hand rebuild
   and FOV scale, the "should render world" gate, world-only screenshots.
-- `RenderSystemMixins`: the max texture size reported to atlases.
-- `ScreenshotRecorderMixins`: screenshots. With MCVR presenting, it reads back
-  the final image. World-only screenshots still go through native.
+- `RenderSystemMixins`: the max texture size reported to atlases. No longer
+  needed: vanilla and MCVR share a device, so vanilla's own limit is correct.
+- `ScreenshotRecorderMixins`: screenshots. No longer needed: 26.3 copies the
+  main target on the GPU, and the world is composited into it before the UI,
+  so F2 screenshots (world and UI) and the world-only auto-screenshot both work
+  unchanged.
 
 The JNI surface shrinks to match: `ShaderProxy`, `PipelineStateProxy`,
 `DrawCommandProxy`, `VulkanUiProxy`, `OpenGLUiProxy` and the GL-presentation
