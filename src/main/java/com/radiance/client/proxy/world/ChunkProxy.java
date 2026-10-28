@@ -5,6 +5,8 @@ import static org.lwjgl.system.MemoryUtil.memAddress;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.radiance.client.constant.Constants;
+import com.radiance.client.mod_support.ModSupport;
+import com.radiance.client.mod_support.sodium.SodiumTerrain;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.vertex.RenderTypeInfo;
@@ -12,6 +14,7 @@ import com.radiance.client.vertex.TransferredBuildBuffer;
 import com.radiance.client.vista.ChunkTerrainBuilder;
 import com.radiance.client.vista.Vista;
 import com.radiance.client.vista.VistaTerrain;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.nio.ByteBuffer;
@@ -22,12 +25,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.SectionUpdateTracker;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.SectionBufferBuilderPack;
+import net.minecraft.client.renderer.block.BlockAndTintGetter;
 import net.minecraft.client.renderer.ViewArea;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.chunk.CompiledSectionMesh;
@@ -123,6 +128,8 @@ public class ChunkProxy {
                 chunkSlots.clear();
                 nativeGeometry.clear();
                 BlockEntitySectionCache.clear();
+                sodiumSizeXZ = 0;
+                sodiumCenterValid = false;
             }
             currentStorage = null;
             pendingRebuildAll = false;
@@ -139,6 +146,10 @@ public class ChunkProxy {
             Profiler.enter("java.ChunkProxy.rebuildAll");
         }
         try {
+            if (ModSupport.SODIUM) {
+                SodiumTerrain.rebuildAll();
+                return;
+            }
             if (currentStorage == null) {
                 pendingRebuildAll = true;
                 return;
@@ -335,13 +346,14 @@ public class ChunkProxy {
     }
 
     private static final class ChunkSlot {
-        private final SectionRenderDispatcher.RenderSection builtChunk;
+        /** What the slot belongs to: vanilla's {@code RenderSection}, or {@link #SODIUM_OWNER}. */
+        private final Object owner;
         private final BlockPos origin;
         private final long generation;
         private boolean relocating = true;
 
-        private ChunkSlot(SectionRenderDispatcher.RenderSection builtChunk, BlockPos origin, long generation) {
-            this.builtChunk = builtChunk;
+        private ChunkSlot(Object owner, BlockPos origin, long generation) {
+            this.owner = owner;
             this.origin = origin;
             this.generation = generation;
         }
@@ -359,7 +371,7 @@ public class ChunkProxy {
     public static void finishRelocation(SectionRenderDispatcher.RenderSection builtChunk) {
         synchronized (chunkLifecycleLock) {
             ChunkSlot slot = chunkSlots.get(builtChunk.index);
-            if (slot != null && slot.builtChunk == builtChunk
+            if (slot != null && slot.owner == builtChunk
                 && slot.origin.equals(builtChunk.getRenderOrigin())) {
                 slot.relocating = false;
             }
@@ -367,11 +379,12 @@ public class ChunkProxy {
     }
 
     /** The slot a compile of {@code origin} may publish to, or null if the section moved on. */
-    private static ChunkSlot currentSlot(SectionRenderDispatcher.RenderSection builtChunk,
-        BlockPos origin, AtomicBoolean cancelled) {
-        ChunkSlot slot = chunkSlots.get(builtChunk.index);
-        if (slot == null || slot.builtChunk != builtChunk || slot.relocating
-            || !slot.origin.equals(origin) || cancelled.get()) {
+    private static ChunkSlot currentSlot(int index, Object owner, BlockPos origin, long generation,
+        BooleanSupplier cancelled) {
+        ChunkSlot slot = chunkSlots.get(index);
+        if (slot == null || slot.owner != owner || slot.relocating
+            || !slot.origin.equals(origin) || (generation >= 0 && slot.generation != generation)
+            || cancelled.getAsBoolean()) {
             return null;
         }
         return slot;
@@ -390,9 +403,27 @@ public class ChunkProxy {
         results.renderedLayers.clear();
 
         BlockPos origin = sectionPos.origin();
+        double dx = origin.getX() + 8 - cameraPos.x;
+        double dy = origin.getY() + 8 - cameraPos.y;
+        double dz = origin.getZ() + 8 - cameraPos.z;
+        // Synchronous compiles are the ones vanilla prioritises (nearby or player-caused).
+        boolean important = dx * dx + dy * dy + dz * dz < IMPORTANT_DISTANCE_SQUARED
+            || RenderSystem.isOnRenderThread();
+        publishCompiled(builtChunk.index, builtChunk, origin, -1L, region, buffers, storage,
+            cancelled::get, important);
+    }
+
+    /**
+     * Hands a meshed section to native if {@code owner} still holds the slot at {@code origin}.
+     * Takes ownership of {@code buffers} (and, per layer, of the matching allocator in
+     * {@code storage}). Shared by the vanilla compile task and Sodium's chunk builder.
+     */
+    private static void publishCompiled(int index, Object owner, BlockPos origin, long generation,
+        BlockAndTintGetter region, Map<ChunkSectionLayer, MeshData> buffers,
+        SectionBufferBuilderPack storage, BooleanSupplier cancelled, boolean important) {
         boolean current;
         synchronized (chunkLifecycleLock) {
-            current = currentSlot(builtChunk, origin, cancelled) != null;
+            current = currentSlot(index, owner, origin, generation, cancelled) != null;
         }
         if (!current) {
             closeUntransferredBuiltBuffers(buffers, null);
@@ -407,21 +438,14 @@ public class ChunkProxy {
             throw e;
         }
 
-        double dx = origin.getX() + 8 - cameraPos.x;
-        double dy = origin.getY() + 8 - cameraPos.y;
-        double dz = origin.getZ() + 8 - cameraPos.z;
-        // Synchronous compiles are the ones vanilla prioritises (nearby or player-caused).
-        boolean important = dx * dx + dy * dy + dz * dz < IMPORTANT_DISTANCE_SQUARED
-            || RenderSystem.isOnRenderThread();
-
         if (buffers.isEmpty()) {
             try (VistaTerrain.Upload upload = terrain.upload()) {
                 synchronized (chunkLifecycleLock) {
-                    ChunkSlot slot = currentSlot(builtChunk, origin, cancelled);
+                    ChunkSlot slot = currentSlot(index, owner, origin, generation, cancelled);
                     if (slot != null) {
-                        invalidateSingle(builtChunk.index, origin.getX(), origin.getY(), origin.getZ(),
+                        invalidateSingle(index, origin.getX(), origin.getY(), origin.getZ(),
                             slot.generation, upload.count, upload.address);
-                        nativeGeometry.clear(builtChunk.index);
+                        nativeGeometry.clear(index);
                         builtChunkCount++;
                     }
                 }
@@ -489,17 +513,17 @@ public class ChunkProxy {
 
             try (VistaTerrain.Upload upload = terrain.upload()) {
                 synchronized (chunkLifecycleLock) {
-                    ChunkSlot slot = currentSlot(builtChunk, origin, cancelled);
+                    ChunkSlot slot = currentSlot(index, owner, origin, generation, cancelled);
                     if (slot != null) {
                         rebuildSingleNative(origin.getX(), origin.getY(), origin.getZ(),
-                            builtChunk.index, size, memAddress(geometryTypeBB),
+                            index, size, memAddress(geometryTypeBB),
                             memAddress(geometryGroupNameBB), memAddress(geometryTextureBB),
                             memAddress(vertexFormatBB), memAddress(indexTypeBB),
                             memAddress(vertexCountBB), memAddress(verticesBB), memAddress(indicesBB),
                             transferredBuffers, important, slot.generation, upload.count,
                             upload.address);
                         submittedNative = true;
-                        nativeGeometry.set(builtChunk.index);
+                        nativeGeometry.set(index);
                         builtChunkCount++;
                     }
                 }
@@ -529,7 +553,7 @@ public class ChunkProxy {
     }
 
     /** The far-terrain columns along the section's border, when a far terrain source is loaded. */
-    private static VistaTerrain buildTerrain(RenderSectionRegion region, BlockPos origin) {
+    private static VistaTerrain buildTerrain(BlockAndTintGetter region, BlockPos origin) {
         if (!Vista.isAvailable()) {
             return VistaTerrain.EMPTY;
         }
@@ -616,4 +640,226 @@ public class ChunkProxy {
 
     private static native void relocateSingle(long index, int originX, int originY, int originZ,
         long generation);
+
+    // ------------------------------------------------------------------------------------------
+    // Sodium. Sodium keeps its sections in a hash map keyed by position and has no fixed grid, so
+    // the ring native expects (the vanilla ViewArea layout: index = (z * sizeY + y) * sizeXZ + x with
+    // x and z taken modulo the grid width) is kept here instead: a (2R+1)^2 column window around
+    // the camera section. Sodium's meshing workers publish through sodiumPublish; sections that
+    // were not meshed (nothing but air, unloaded) are reported through sodiumInvalidate/Release.
+    // ------------------------------------------------------------------------------------------
+
+    /** Owner of every slot of Sodium's ring (there is one section manager at a time). */
+    private static final Object SODIUM_OWNER = new Object();
+    private static final long[] NO_SECTIONS = new long[0];
+    private static int sodiumSizeXZ;
+    private static int sodiumSizeY;
+    private static int sodiumMinSectionY;
+    private static int sodiumRadius;
+    private static boolean sodiumCenterValid;
+    private static int sodiumCenterX;
+    private static int sodiumCenterY;
+    private static int sodiumCenterZ;
+
+    /** Sizes native's section grid for a Sodium section manager with this render distance. */
+    public static void sodiumInit(int radius, int minSectionY, int maxSectionY) {
+        clear();
+        int sizeXZ = radius * 2 + 1;
+        int sizeY = maxSectionY - minSectionY + 1;
+        synchronized (chunkLifecycleLock) {
+            sodiumRadius = radius;
+            sodiumSizeXZ = sizeXZ;
+            sodiumSizeY = sizeY;
+            sodiumMinSectionY = minSectionY;
+            sodiumCenterValid = false;
+            initNative(sizeXZ * sizeXZ * sizeY, sizeXZ, sizeY, sizeXZ, minSectionY);
+        }
+    }
+
+    private static int sodiumIndex(int sectionX, int sectionY, int sectionZ) {
+        return (Math.floorMod(sectionZ, sodiumSizeXZ) * sodiumSizeY + (sectionY - sodiumMinSectionY))
+            * sodiumSizeXZ + Math.floorMod(sectionX, sodiumSizeXZ);
+    }
+
+    private static boolean sodiumInWindowLocked(int sectionX, int sectionY, int sectionZ) {
+        return sodiumSizeXZ != 0 && sodiumCenterValid
+            && Math.abs(sectionX - sodiumCenterX) <= sodiumRadius
+            && Math.abs(sectionZ - sodiumCenterZ) <= sodiumRadius
+            && sectionY >= sodiumMinSectionY && sectionY < sodiumMinSectionY + sodiumSizeY;
+    }
+
+    /** Whether native has a slot for this section, i.e. it is within the camera's column window. */
+    public static boolean sodiumInWindow(int sectionX, int sectionY, int sectionZ) {
+        synchronized (chunkLifecycleLock) {
+            return sodiumInWindowLocked(sectionX, sectionY, sectionZ);
+        }
+    }
+
+    /**
+     * Moves the window to the camera's section. Slots that now stand for another section are
+     * relocated in native (dropping their data and any publish still in flight for the old
+     * section). Returns the nodes ({@link SectionPos#asLong}) of the sections that entered the
+     * window: the caller has to get them meshed again.
+     */
+    public static long[] sodiumReposition(int centerX, int centerY, int centerZ) {
+        synchronized (chunkLifecycleLock) {
+            if (sodiumSizeXZ == 0) {
+                return NO_SECTIONS;
+            }
+            if (sodiumCenterValid && centerX == sodiumCenterX && centerY == sodiumCenterY
+                && centerZ == sodiumCenterZ) {
+                return NO_SECTIONS;
+            }
+            boolean columnsMoved = !sodiumCenterValid || centerX != sodiumCenterX
+                || centerZ != sodiumCenterZ;
+            sodiumCenterValid = true;
+            sodiumCenterX = centerX;
+            sodiumCenterY = centerY;
+            sodiumCenterZ = centerZ;
+            updateSectionPosNative(centerX, centerY, centerZ);
+            if (!columnsMoved) {
+                return NO_SECTIONS;
+            }
+
+            LongArrayList entered = new LongArrayList();
+            int baseX = centerX - sodiumRadius;
+            int baseZ = centerZ - sodiumRadius;
+            for (int gridZ = 0; gridZ < sodiumSizeXZ; gridZ++) {
+                int sectionZ = baseZ + Math.floorMod(gridZ - baseZ, sodiumSizeXZ);
+                for (int gridX = 0; gridX < sodiumSizeXZ; gridX++) {
+                    int sectionX = baseX + Math.floorMod(gridX - baseX, sodiumSizeXZ);
+                    // Columns move as a whole: if the lowest slot is right, so are the others.
+                    ChunkSlot bottom = chunkSlots.get(
+                        sodiumIndex(sectionX, sodiumMinSectionY, sectionZ));
+                    if (bottom != null && bottom.origin.getX() == (sectionX << 4)
+                        && bottom.origin.getZ() == (sectionZ << 4)) {
+                        continue;
+                    }
+                    for (int gridY = 0; gridY < sodiumSizeY; gridY++) {
+                        int sectionY = sodiumMinSectionY + gridY;
+                        sodiumRelocateLocked(sectionX, sectionY, sectionZ);
+                        entered.add(SectionPos.asLong(sectionX, sectionY, sectionZ));
+                    }
+                }
+            }
+            return entered.isEmpty() ? NO_SECTIONS : entered.toLongArray();
+        }
+    }
+
+    /** Resets the slot for this section (new generation, no data). Call with the lock held. */
+    private static void sodiumRelocateLocked(int sectionX, int sectionY, int sectionZ) {
+        int index = sodiumIndex(sectionX, sectionY, sectionZ);
+        ChunkSlot slot = new ChunkSlot(SODIUM_OWNER,
+            new BlockPos(sectionX << 4, sectionY << 4, sectionZ << 4), ++nextChunkGeneration);
+        slot.relocating = false;
+        chunkSlots.put(index, slot);
+        nativeGeometry.clear(index);
+        relocateSingle(index, sectionX << 4, sectionY << 4, sectionZ << 4, slot.generation);
+    }
+
+    /**
+     * Called by a Sodium worker before it meshes a section: the generation of the slot the result
+     * will go to, or -1 if the section is not in the window (nothing to mesh for).
+     */
+    public static long sodiumBegin(int sectionX, int sectionY, int sectionZ) {
+        synchronized (chunkLifecycleLock) {
+            if (!sodiumInWindowLocked(sectionX, sectionY, sectionZ)) {
+                return -1L;
+            }
+            ChunkSlot slot = chunkSlots.get(sodiumIndex(sectionX, sectionY, sectionZ));
+            return slot == null ? -1L : slot.generation;
+        }
+    }
+
+    /**
+     * Publishes a section meshed on a Sodium worker. Takes ownership of {@code layers}; dropped if
+     * the slot was relocated or released since {@link #sodiumBegin} returned {@code generation}
+     * (or {@code cancelled}). {@code region} is the worker's block view, used for the
+     * far-terrain border columns.
+     */
+    public static void sodiumPublish(SectionPos sectionPos, long generation,
+        BlockAndTintGetter region, Map<ChunkSectionLayer, MeshData> layers,
+        SectionBufferBuilderPack storage, BooleanSupplier cancelled, boolean important) {
+        int index;
+        synchronized (chunkLifecycleLock) {
+            if (!sodiumInWindowLocked(sectionPos.x(), sectionPos.y(), sectionPos.z())) {
+                closeUntransferredBuiltBuffers(layers, null);
+                return;
+            }
+            index = sodiumIndex(sectionPos.x(), sectionPos.y(), sectionPos.z());
+        }
+        publishCompiled(index, SODIUM_OWNER, sectionPos.origin(), generation, region, layers,
+            storage, cancelled, important);
+    }
+
+    /**
+     * The section has nothing to draw (only air, or its geometry vanished): tells native the slot
+     * is empty, with no far-terrain border columns.
+     */
+    public static void sodiumInvalidate(int sectionX, int sectionY, int sectionZ) {
+        synchronized (chunkLifecycleLock) {
+            if (!sodiumInWindowLocked(sectionX, sectionY, sectionZ)) {
+                return;
+            }
+            int index = sodiumIndex(sectionX, sectionY, sectionZ);
+            ChunkSlot slot = chunkSlots.get(index);
+            if (slot == null || slot.owner != SODIUM_OWNER || slot.relocating
+                || slot.origin.getX() != (sectionX << 4) || slot.origin.getY() != (sectionY << 4)
+                || slot.origin.getZ() != (sectionZ << 4)) {
+                return;
+            }
+            try (VistaTerrain.Upload upload = VistaTerrain.EMPTY.upload()) {
+                invalidateSingle(index, slot.origin.getX(), slot.origin.getY(), slot.origin.getZ(),
+                    slot.generation, upload.count, upload.address);
+            }
+            nativeGeometry.clear(index);
+            builtChunkCount++;
+        }
+    }
+
+    /** The section is gone (chunk unloaded): drops its data and any publish still in flight. */
+    public static void sodiumRelease(int sectionX, int sectionY, int sectionZ) {
+        synchronized (chunkLifecycleLock) {
+            if (sodiumInWindowLocked(sectionX, sectionY, sectionZ)) {
+                sodiumRelocateLocked(sectionX, sectionY, sectionZ);
+            }
+        }
+    }
+
+    /**
+     * Whether the section's terrain is in the ray tracer, for a section Sodium reports as built:
+     * sections outside the window or without geometry count as ready, like in vanilla's path.
+     */
+    public static boolean sodiumSectionReady(int sectionX, int sectionY, int sectionZ) {
+        int index;
+        synchronized (chunkLifecycleLock) {
+            if (!sodiumInWindowLocked(sectionX, sectionY, sectionZ)) {
+                return true;
+            }
+            index = sodiumIndex(sectionX, sectionY, sectionZ);
+            if (!nativeGeometry.get(index)) {
+                return true;
+            }
+        }
+        return isChunkReady(index);
+    }
+
+    /** The window as [minX, minZ, maxX, maxZ] in section coordinates, or null before it exists. */
+    public static int[] sodiumWindow() {
+        synchronized (chunkLifecycleLock) {
+            if (sodiumSizeXZ == 0 || !sodiumCenterValid) {
+                return null;
+            }
+            return new int[]{sodiumCenterX - sodiumRadius, sodiumCenterZ - sodiumRadius,
+                sodiumCenterX + sodiumRadius, sodiumCenterZ + sodiumRadius};
+        }
+    }
+
+    public static int sodiumMinSectionY() {
+        return sodiumMinSectionY;
+    }
+
+    public static int sodiumMaxSectionY() {
+        return sodiumMinSectionY + sodiumSizeY - 1;
+    }
 }

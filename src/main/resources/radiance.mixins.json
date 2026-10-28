@@ -84,7 +84,11 @@
     "mod_support.voxy.source.ModelFactoryMixins",
     "mod_support.voxy.source.ModelManagerMixins",
     "mod_support.voxy.source.SoftwareModelTextureBakeryMixins",
-    "mod_support.voxy.source.TextureAtlasSpritesAccessor"
+    "mod_support.voxy.source.TextureAtlasSpritesAccessor",
+    "mod_support.sodium.ChunkBuilderMeshingTaskMixins",
+    "mod_support.sodium.RenderSectionManagerMixins",
+    "mod_support.sodium.RenderSectionMixins",
+    "mod_support.sodium.SodiumWorldRendererMixins"
   ],
   "injectors": {
     "defaultRequire": 1

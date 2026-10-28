@@ -6,6 +6,7 @@ import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.radiance.client.mod_support.ModSupport;
 import com.radiance.client.proxy.vulkan.BufferProxy;
 import com.radiance.client.proxy.world.ChunkProxy;
 import com.radiance.client.proxy.world.EntityProxy;
@@ -277,7 +278,8 @@ public abstract class WorldRendererMixins {
         boolean renderOutline, CameraRenderState cameraState, GpuBufferSlice terrainFog,
         Vector4f fogColor, boolean shouldRenderSky, boolean consistentDepthRequired,
         CallbackInfo ci) {
-        if (this.viewArea == null) {
+        // Sodium: its ViewArea is a stub, terrain is driven from Sodium's section manager.
+        if (ModSupport.SODIUM || this.viewArea == null) {
             return;
         }
         ChunkProxy.setStorage(this.viewArea);
@@ -293,7 +295,8 @@ public abstract class WorldRendererMixins {
         at = @At("HEAD"), cancellable = true)
     private void radiance$waitForNativeSection(BlockPos blockPos, long chunkFadeDuration,
         CallbackInfoReturnable<Boolean> cir) {
-        if (this.viewArea == null) {
+        // Sodium answers this itself (SodiumWorldRendererMixins waits for native there).
+        if (ModSupport.SODIUM || this.viewArea == null) {
             return;
         }
         SectionRenderDispatcher.RenderSection section = this.viewArea.getRenderSectionAt(blockPos);

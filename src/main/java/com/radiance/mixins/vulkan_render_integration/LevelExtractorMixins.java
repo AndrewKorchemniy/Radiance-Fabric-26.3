@@ -1,5 +1,6 @@
 package com.radiance.mixins.vulkan_render_integration;
 
+import com.radiance.client.mod_support.ModSupport;
 import com.radiance.client.proxy.world.BlockEntitySectionCache;
 import com.radiance.client.texture.RainExposure;
 import com.radiance.client.vista.Vista;
@@ -63,7 +64,8 @@ public class LevelExtractorMixins {
     private ObjectArrayList<SectionRenderDispatcher.RenderSection> allBlockEntitySections(
         LevelRenderer instance) {
         ViewArea viewArea = instance.viewArea();
-        if (viewArea == null) {
+        // Sodium cancels this extraction and collects block entities itself (SodiumWorldRendererMixins).
+        if (ModSupport.SODIUM || viewArea == null) {
             return instance.visibleSections();
         }
         return ObjectArrayList.wrap(BlockEntitySectionCache.sections(viewArea));
