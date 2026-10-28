@@ -6,7 +6,7 @@ import java.util.Map.Entry;
 import net.minecraft.client.renderer.texture.atlas.SpriteSource.Output;
 import net.minecraft.client.renderer.texture.atlas.sources.DirectoryLister;
 import net.minecraft.resources.FileToIdConverter;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.spongepowered.asm.mixin.Final;
@@ -31,12 +31,12 @@ public class DirectoryAtlasSourceMixins {
     public void cancelPBRLoad(ResourceManager resourceManager, Output regions,
         CallbackInfo ci) {
         FileToIdConverter resourceFinder = new FileToIdConverter("textures/" + this.sourcePath, ".png");
-        Map<ResourceLocation, Resource> resources = resourceFinder.listMatchingResources(resourceManager);
-        for (Entry<ResourceLocation, Resource> entry : resources.entrySet()) {
-            ResourceLocation identifier = entry.getKey();
+        Map<Identifier, Resource> resources = resourceFinder.listMatchingResources(resourceManager);
+        for (Entry<Identifier, Resource> entry : resources.entrySet()) {
+            Identifier identifier = entry.getKey();
             Resource resource = entry.getValue();
 
-            ResourceLocation identifier2 = resourceFinder.fileToId(identifier)
+            Identifier identifier2 = resourceFinder.fileToId(identifier)
                 .withPrefix(this.idPrefix);
             if (AuxiliaryTextures.shouldSkipAtlasSprite(resourceManager, identifier2)) {
                 continue;

@@ -69,7 +69,7 @@ import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.client.resources.model.ModelBakery;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.BlockDestructionProgress;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.CommonColors;
@@ -94,16 +94,16 @@ public class EntityProxy {
     public static final ConcurrentMap<Class<? extends Particle>, AtomicInteger> PARTICLE_COUNTERS = new ConcurrentHashMap<>();
     public static MultiBufferSource postTextVertexConsumerProvider;
 
-    private static final ResourceLocation SUN_TEXTURE = ResourceLocation.withDefaultNamespace(
+    private static final Identifier SUN_TEXTURE = Identifier.withDefaultNamespace(
         "textures/environment/sun.png");
-    private static final ResourceLocation MOON_PHASES_TEXTURE = ResourceLocation.withDefaultNamespace(
+    private static final Identifier MOON_PHASES_TEXTURE = Identifier.withDefaultNamespace(
         "textures/environment/moon_phases.png");
     private static final float VILLAGER_LAYER_OFFSET_UNIT = 0.001f / 16.0f;
     private static final String VILLAGER_TEXTURE_PREFIX = "textures/entity/villager/";
     private static final String ZOMBIE_VILLAGER_TEXTURE_PREFIX = "textures/entity/zombie_villager/";
-    private static final ResourceLocation WEATHER_RAIN_TEXTURE = ResourceLocation.withDefaultNamespace(
+    private static final Identifier WEATHER_RAIN_TEXTURE = Identifier.withDefaultNamespace(
         "textures/environment/rain.png");
-    private static final ResourceLocation WEATHER_SNOW_TEXTURE = ResourceLocation.withDefaultNamespace(
+    private static final Identifier WEATHER_SNOW_TEXTURE = Identifier.withDefaultNamespace(
         "textures/environment/snow.png");
     private static final String WEATHER_DEFAULT_CONTENT = "/weather/default";
     private static final String WEATHER_RAIN_CONTENT = "/weather/rain";
@@ -1237,7 +1237,7 @@ public class EntityProxy {
                     RenderType renderLayer = entityRenderLayer.renderLayer;
                     MeshData vertexBuffer = entityRenderLayer.builtBuffer;
 
-                    ResourceLocation
+                    Identifier
                         textureIdentifier =
                         ((RenderType.CompositeRenderType) renderLayer).state.textureState.cutoutTexture()
                             .orElse(MissingTextureAtlasSprite.getLocation());
@@ -1402,7 +1402,7 @@ public class EntityProxy {
         }
     }
 
-    private static float getGeometryNormalOffset(ResourceLocation identifier) {
+    private static float getGeometryNormalOffset(Identifier identifier) {
         if (!"minecraft".equals(identifier.getNamespace())) {
             return 0.0f;
         }
@@ -1549,7 +1549,7 @@ public class EntityProxy {
     }
 
     private static String resolveWeatherContentName(RenderType renderLayer) {
-        ResourceLocation textureIdentifier = getTextureId(renderLayer);
+        Identifier textureIdentifier = getTextureId(renderLayer);
         if (WEATHER_RAIN_TEXTURE.equals(textureIdentifier)) {
             return WEATHER_RAIN_CONTENT;
         }
@@ -1559,7 +1559,7 @@ public class EntityProxy {
         return WEATHER_DEFAULT_CONTENT;
     }
 
-    private static ResourceLocation getTextureId(RenderType renderLayer) {
+    private static Identifier getTextureId(RenderType renderLayer) {
         if (renderLayer instanceof RenderType.CompositeRenderType multiPhase) {
             return multiPhase.state.textureState.cutoutTexture()
                 .orElse(MissingTextureAtlasSprite.getLocation());

@@ -5,7 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.gui.font.FontManager;
 import net.minecraft.client.gui.font.FontSet;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -29,7 +29,7 @@ public abstract class FontManagerMixins {
     }
 
     @WrapMethod(method = "getFontSetCached")
-    private FontSet synchronizeBackgroundFontLookup(ResourceLocation font,
+    private FontSet synchronizeBackgroundFontLookup(Identifier font,
         Operation<FontSet> original) {
         if (RenderSystem.isOnRenderThread()) {
             return original.call(font);

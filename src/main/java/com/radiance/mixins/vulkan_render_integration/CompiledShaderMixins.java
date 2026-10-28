@@ -5,7 +5,7 @@ import com.radiance.mixin_related.extensions.vulkan_render_integration.ICompiled
 import java.lang.reflect.Constructor;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.renderer.ShaderManager;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -29,7 +29,7 @@ public abstract class CompiledShaderMixins implements ICompiledShaderExt {
     private String radiance$resolvedSource;
 
     @Inject(method = "compile", at = @At("HEAD"), cancellable = true)
-    private static void compileWithoutOpenGL(ResourceLocation id, CompiledShader.Type type, String source,
+    private static void compileWithoutOpenGL(Identifier id, CompiledShader.Type type, String source,
         CallbackInfoReturnable<CompiledShader> cir) throws ShaderManager.CompilationException {
         try {
             CompiledShader shader = CONSTRUCTOR.newInstance(NEXT_VIRTUAL_SHADER_ID.getAndIncrement(),
@@ -66,7 +66,7 @@ public abstract class CompiledShaderMixins implements ICompiledShaderExt {
     private static Constructor<CompiledShader> createConstructor() {
         try {
             Constructor<CompiledShader> constructor = CompiledShader.class.getDeclaredConstructor(
-                int.class, ResourceLocation.class);
+                int.class, Identifier.class);
             constructor.setAccessible(true);
             return constructor;
         } catch (ReflectiveOperationException e) {

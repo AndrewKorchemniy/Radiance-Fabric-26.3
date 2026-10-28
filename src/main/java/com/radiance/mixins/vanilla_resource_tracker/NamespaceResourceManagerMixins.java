@@ -2,7 +2,7 @@ package com.radiance.mixins.vanilla_resource_tracker;
 
 import com.radiance.client.texture.IdentifierInputStream;
 import java.io.InputStream;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.resources.FallbackResourceManager;
 import net.minecraft.server.packs.resources.IoSupplier;
@@ -18,15 +18,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class NamespaceResourceManagerMixins {
 
     @Shadow
-    private static IoSupplier<InputStream> wrapForDebug(ResourceLocation id, PackResources pack,
+    private static IoSupplier<InputStream> wrapForDebug(Identifier id, PackResources pack,
         IoSupplier<InputStream> supplier) {
         return null;
     }
 
-    @Inject(method = "createResource(Lnet/minecraft/server/packs/PackResources;Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/server/packs/resources/IoSupplier;Lnet/minecraft/server/packs/resources/IoSupplier;)Lnet/minecraft/server/packs/resources/Resource;", at = @At(value = "HEAD"),
+    @Inject(method = "createResource(Lnet/minecraft/server/packs/PackResources;Lnet/minecraft/resources/Identifier;Lnet/minecraft/server/packs/resources/IoSupplier;Lnet/minecraft/server/packs/resources/IoSupplier;)Lnet/minecraft/server/packs/resources/Resource;", at = @At(value = "HEAD"),
         cancellable = true)
     private static void addIdentifierToInputStream(PackResources pack,
-        ResourceLocation id,
+        Identifier id,
         IoSupplier<InputStream> supplier,
         IoSupplier<ResourceMetadata> metadataSupplier,
         CallbackInfoReturnable<Resource> cir) {

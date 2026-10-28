@@ -10,7 +10,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.profiling.Profiler;
 import net.minecraft.util.profiling.ProfilerFiller;
@@ -54,7 +54,7 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
     @Unique
     private NativeImage radiance$image;
     @Unique
-    private ResourceLocation radiance$textureIdentifier;
+    private Identifier radiance$textureIdentifier;
 
     @Mutable
     @Final
@@ -111,7 +111,7 @@ public abstract class LightmapTextureManagerMixins implements ILightMapManagerEx
     public void initJavaLightmapTexture(GameRenderer renderer, Minecraft client,
         CallbackInfo ci) {
         this.radiance$texture = new DynamicTexture(16, 16, false);
-        this.radiance$textureIdentifier = ResourceLocation.fromNamespaceAndPath("radiance", "dynamic/light_map");
+        this.radiance$textureIdentifier = Identifier.fromNamespaceAndPath("radiance", "dynamic/light_map");
         this.minecraft.getTextureManager()
             .register(this.radiance$textureIdentifier, this.radiance$texture);
         this.radiance$image = this.radiance$texture.getPixels();

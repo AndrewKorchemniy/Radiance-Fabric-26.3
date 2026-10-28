@@ -24,11 +24,11 @@ import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 public class RenderPipelineScreen extends Screen {
 
-    private static final ResourceLocation GEAR_TEX = ResourceLocation.fromNamespaceAndPath(Radiance.MOD_ID,
+    private static final Identifier GEAR_TEX = Identifier.fromNamespaceAndPath(Radiance.MOD_ID,
         "textures/gui/render_pipeline/gear.png");
 
     private static final Map<String, Integer> FORMAT_COLORS = Map.of("R8G8B8A8_SRGB", 0xFF4EA5FF,

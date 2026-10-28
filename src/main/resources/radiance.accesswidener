@@ -8,52 +8,17 @@ accessible	class	net/minecraft/client/gui/font/providers/UnihexProvider$Glyph
 accessible	field	net/minecraft/client/gui/font/providers/UnihexProvider$Glyph	contents	Lnet/minecraft/client/gui/font/providers/UnihexProvider$LineData;
 accessible	field	net/minecraft/client/gui/font/providers/UnihexProvider$Glyph	left	I
 accessible	field	net/minecraft/client/gui/font/providers/UnihexProvider$Glyph	right	I
-accessible	class	net/minecraft/client/gui/font/FontTexture$Node
-accessible	method	net/minecraft/client/gui/font/FontTexture$Node	insert	(Lcom/mojang/blaze3d/font/SheetGlyphInfo;)Lnet/minecraft/client/gui/font/FontTexture$Node;
-accessible	field	net/minecraft/client/gui/font/FontTexture$Node	x	I
-accessible	field	net/minecraft/client/gui/font/FontTexture$Node	y	I
 accessible	class	net/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture
 accessible	field	net/minecraft/client/renderer/texture/SpriteContents	width	I
 accessible	field	net/minecraft/client/renderer/texture/SpriteContents	height	I
 accessible	field	net/minecraft/client/renderer/texture/SpriteContents	byMipLevel	[Lcom/mojang/blaze3d/platform/NativeImage;
 accessible	class	net/minecraft/client/renderer/texture/SpriteContents$FrameInfo
 accessible	field	net/minecraft/client/renderer/texture/SpriteContents$FrameInfo	index	I
-accessible	field	com/mojang/blaze3d/systems/RenderSystem	apiDescription	Ljava/lang/String;
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$ScissorState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$DepthState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$BooleanState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$BlendState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$CullState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$PolygonOffsetState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$ColorLogicState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$ColorMask
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$StencilState
-accessible	class	com/mojang/blaze3d/platform/GlStateManager$StencilFunc
-accessible	field	com/mojang/blaze3d/systems/RenderSystem	shaderLightDirections	[Lorg/joml/Vector3f;
 accessible	class	net/minecraft/client/renderer/GpuWarnlistManager$Preparations
-accessible	class	net/minecraft/client/renderer/chunk/RenderRegionCache$ChunkInfo
 accessible	method	net/minecraft/client/renderer/ViewArea	getRenderSectionAt	(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection;
-accessible	class	net/minecraft/client/renderer/RenderType$CompositeRenderType
-accessible	field	net/minecraft/client/renderer/RenderType$CompositeRenderType	state	Lnet/minecraft/client/renderer/RenderType$CompositeState;
-accessible	class	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection$RebuildTask
-accessible	class	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$SectionTaskResult
-accessible	method	net/minecraft/client/renderer/RenderStateShard$TextureStateShard	cutoutTexture	()Ljava/util/Optional;
-accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	textureState	Lnet/minecraft/client/renderer/RenderStateShard$EmptyTextureStateShard;
-accessible	method	net/minecraft/client/renderer/RenderStateShard$EmptyTextureStateShard	cutoutTexture	()Ljava/util/Optional;
-accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	transparencyState	Lnet/minecraft/client/renderer/RenderStateShard$TransparencyStateShard;
-accessible	field	net/minecraft/client/renderer/RenderStateShard	name	Ljava/lang/String;
-accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	cullState	Lnet/minecraft/client/renderer/RenderStateShard$CullStateShard;
-accessible	method	net/minecraft/client/renderer/RenderStateShard	setupGlintTexturing	(F)V
-accessible	method	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection	updateGlobalBlockEntities	(Ljava/util/Collection;)V
 accessible	field	com/mojang/blaze3d/vertex/MeshData	vertexBuffer	Lcom/mojang/blaze3d/vertex/ByteBufferBuilder$Result;
 accessible	field	com/mojang/blaze3d/vertex/MeshData	indexBuffer	Lcom/mojang/blaze3d/vertex/ByteBufferBuilder$Result;
-accessible	field	com/mojang/blaze3d/vertex/ByteBufferBuilder$Result	field_52088	Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;
 accessible	field	net/minecraft/client/renderer/SectionBufferBuilderPack	buffers	Ljava/util/Map;
-accessible	method	net/minecraft/client/renderer/ItemInHandRenderer	evaluateWhichHandsToRender	(Lnet/minecraft/client/player/LocalPlayer;)Lnet/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection;
-accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderMainHand	Z
-accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderOffHand	Z
-accessible	field	net/minecraft/client/renderer/SkyRenderer	SUN_LOCATION	Lnet/minecraft/resources/ResourceLocation;
-accessible	field	net/minecraft/client/renderer/SkyRenderer	MOON_LOCATION	Lnet/minecraft/resources/ResourceLocation;
 accessible	class	net/minecraft/client/gui/components/OptionsList$Entry
 accessible	method	net/minecraft/client/gui/components/OptionsList$Entry	<init>	(Ljava/util/List;Lnet/minecraft/client/gui/screens/Screen;)V
 accessible	method	net/minecraft/client/gui/components/AbstractSelectionList	addEntry	(Lnet/minecraft/client/gui/components/AbstractSelectionList$Entry;)I
@@ -62,6 +27,44 @@ accessible	class	net/minecraft/client/OptionInstance$CycleableValueSet
 accessible	field	net/minecraft/client/OptionInstance	toString	Ljava/util/function/Function;
 accessible	field	net/minecraft/client/OptionInstance	caption	Lnet/minecraft/network/chat/Component;
 accessible	field	net/minecraft/client/gui/screens/Screen	renderables	Ljava/util/List;
-accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	depthTestState	Lnet/minecraft/client/renderer/RenderStateShard$DepthTestStateShard;
-accessible	class	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard
-accessible	field	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard	functionName	Ljava/lang/String;
+
+# 26.3 port: the 1.21.4 entries below no longer resolve. Each needs a 26.3
+# equivalent, or can be dropped, as the code that used it is ported (PORTING.md, M2).
+#accessible	class	net/minecraft/client/gui/font/FontTexture$Node
+#accessible	method	net/minecraft/client/gui/font/FontTexture$Node	insert	(Lcom/mojang/blaze3d/font/SheetGlyphInfo;)Lnet/minecraft/client/gui/font/FontTexture$Node;
+#accessible	field	net/minecraft/client/gui/font/FontTexture$Node	x	I
+#accessible	field	net/minecraft/client/gui/font/FontTexture$Node	y	I
+#accessible	field	com/mojang/blaze3d/systems/RenderSystem	apiDescription	Ljava/lang/String;
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$ScissorState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$DepthState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$BooleanState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$BlendState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$CullState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$PolygonOffsetState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$ColorLogicState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$ColorMask
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$StencilState
+#accessible	class	com/mojang/blaze3d/platform/GlStateManager$StencilFunc
+#accessible	field	com/mojang/blaze3d/systems/RenderSystem	shaderLightDirections	[Lorg/joml/Vector3f;
+#accessible	class	net/minecraft/client/renderer/chunk/RenderRegionCache$ChunkInfo
+#accessible	class	net/minecraft/client/renderer/RenderType$CompositeRenderType
+#accessible	field	net/minecraft/client/renderer/RenderType$CompositeRenderType	state	Lnet/minecraft/client/renderer/RenderType$CompositeState;
+#accessible	class	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection$RebuildTask
+#accessible	class	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$SectionTaskResult
+#accessible	method	net/minecraft/client/renderer/RenderStateShard$TextureStateShard	cutoutTexture	()Ljava/util/Optional;
+#accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	textureState	Lnet/minecraft/client/renderer/RenderStateShard$EmptyTextureStateShard;
+#accessible	method	net/minecraft/client/renderer/RenderStateShard$EmptyTextureStateShard	cutoutTexture	()Ljava/util/Optional;
+#accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	transparencyState	Lnet/minecraft/client/renderer/RenderStateShard$TransparencyStateShard;
+#accessible	field	net/minecraft/client/renderer/RenderStateShard	name	Ljava/lang/String;
+#accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	cullState	Lnet/minecraft/client/renderer/RenderStateShard$CullStateShard;
+#accessible	method	net/minecraft/client/renderer/RenderStateShard	setupGlintTexturing	(F)V
+#accessible	method	net/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection	updateGlobalBlockEntities	(Ljava/util/Collection;)V
+#accessible	field	com/mojang/blaze3d/vertex/ByteBufferBuilder$Result	field_52088	Lcom/mojang/blaze3d/vertex/ByteBufferBuilder;
+#accessible	method	net/minecraft/client/renderer/ItemInHandRenderer	evaluateWhichHandsToRender	(Lnet/minecraft/client/player/LocalPlayer;)Lnet/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection;
+#accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderMainHand	Z
+#accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderOffHand	Z
+#accessible	field	net/minecraft/client/renderer/SkyRenderer	SUN_LOCATION	Lnet/minecraft/resources/Identifier;
+#accessible	field	net/minecraft/client/renderer/SkyRenderer	MOON_LOCATION	Lnet/minecraft/resources/Identifier;
+#accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	depthTestState	Lnet/minecraft/client/renderer/RenderStateShard$DepthTestStateShard;
+#accessible	class	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard
+#accessible	field	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard	functionName	Ljava/lang/String;

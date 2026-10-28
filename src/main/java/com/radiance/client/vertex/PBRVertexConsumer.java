@@ -25,7 +25,7 @@ import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.core.Direction;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -107,7 +107,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         }
 
         if (renderLayer instanceof RenderType.CompositeRenderType) {
-            ResourceLocation
+            Identifier
                 identifier =
                 ((RenderType.CompositeRenderType) renderLayer).state.textureState.cutoutTexture()
                     .orElse(MissingTextureAtlasSprite.getLocation());
@@ -611,7 +611,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         public GLint(PBRVertexConsumer delegate, RenderType glintRenderLayer) {
             this.delegate = delegate;
             if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
-                ResourceLocation
+                Identifier
                     identifier =
                     ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
                         .orElse(MissingTextureAtlasSprite.getLocation());
@@ -683,7 +683,7 @@ public class PBRVertexConsumer implements VertexConsumer {
             PoseStack.Pose matrix, float textureScale) {
             this.delegate = delegate;
             if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
-                ResourceLocation
+                Identifier
                     identifier =
                     ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
                         .orElse(MissingTextureAtlasSprite.getLocation());

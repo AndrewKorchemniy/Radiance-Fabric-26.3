@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import net.minecraft.client.renderer.texture.atlas.SpriteSource;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 
@@ -61,7 +61,7 @@ public enum AuxiliaryTextures {
         this.auxiliaryBindingsByBaseTextureId = auxiliaryBindingsByBaseTextureId;
     }
 
-    public static boolean isAuxiliaryTexture(ResourceLocation identifier) {
+    public static boolean isAuxiliaryTexture(Identifier identifier) {
         if (identifier == null) {
             return false;
         }
@@ -74,14 +74,14 @@ public enum AuxiliaryTextures {
     }
 
     public static boolean shouldSkipAtlasSprite(ResourceManager resourceManager,
-        ResourceLocation spriteId) {
+        Identifier spriteId) {
         String spritePath = spriteId.getPath();
         for (AuxiliaryTextures auxiliaryTexture : AUXILIARY_TEXTURES) {
             if (!auxiliaryTexture.matchesSuffix(spritePath)) {
                 continue;
             }
 
-            ResourceLocation baseSpriteId = auxiliaryTexture.toBaseSpriteId(spriteId);
+            Identifier baseSpriteId = auxiliaryTexture.toBaseSpriteId(spriteId);
             if (resourceManager.getResource(
                     SpriteSource.TEXTURE_ID_CONVERTER.idToFile(baseSpriteId))
                 .isPresent()) {
@@ -123,7 +123,7 @@ public enum AuxiliaryTextures {
         try {
             List<TextureProxy.TextureUploadRegion> uploadRegions = null;
             TextureTarget baseTarget = sourceImageExt.radiance$getTarget();
-            ResourceLocation identifier = sourceImageExt.radiance$getIdentifier();
+            Identifier identifier = sourceImageExt.radiance$getIdentifier();
 
             TextureTracker.Texture texture = TextureTracker.currentTexture(baseTarget);
             if (texture == null || identifier == null || isAuxiliaryTexture(identifier)) {
@@ -297,7 +297,7 @@ public enum AuxiliaryTextures {
             uploadKind, image.format().components(), target.generation());
     }
 
-    private NativeImage getAlignedImage(ResourceLocation identifier, int level, NativeImage source) {
+    private NativeImage getAlignedImage(Identifier identifier, int level, NativeImage source) {
         AlignedImageKey key = new AlignedImageKey(this, identifier, level, source.getWidth(),
             source.getHeight(), source.format());
         synchronized (decodedImageCacheLock) {
@@ -354,12 +354,12 @@ public enum AuxiliaryTextures {
         return path.endsWith(suffix);
     }
 
-    private ResourceLocation toBaseSpriteId(ResourceLocation spriteId) {
+    private Identifier toBaseSpriteId(Identifier spriteId) {
         String spritePath = spriteId.getPath();
         return spriteId.withPath(spritePath.substring(0, spritePath.length() - suffix.length()));
     }
 
-    private BaseImageKey toBaseImageKey(ResourceLocation auxiliaryIdentifier) {
+    private BaseImageKey toBaseImageKey(Identifier auxiliaryIdentifier) {
         String path = auxiliaryIdentifier.getPath();
         if (this == FLAG) {
             path = path.replaceFirst("^textures/flag/", "textures/");
@@ -371,15 +371,15 @@ public enum AuxiliaryTextures {
             throw new IllegalArgumentException("Unexpected auxiliary path: " + auxiliaryIdentifier);
         }
         baseName = baseName.substring(0, baseName.length() - suffix.length());
-        return new BaseImageKey(this, ResourceLocation.fromNamespaceAndPath(auxiliaryIdentifier.getNamespace(),
+        return new BaseImageKey(this, Identifier.fromNamespaceAndPath(auxiliaryIdentifier.getNamespace(),
             baseName + path.substring(dotIndex)));
     }
 
-    private DecodedImageLevels getDecodedImageLevels(ResourceLocation identifier) {
+    private DecodedImageLevels getDecodedImageLevels(Identifier identifier) {
         return decodedImageLevelsByKey.getOrDefault(new BaseImageKey(this, identifier), DecodedImageLevels.MISSING);
     }
 
-    private static AuxiliaryTextures classifyAuxiliaryResource(ResourceLocation identifier) {
+    private static AuxiliaryTextures classifyAuxiliaryResource(Identifier identifier) {
         String path = identifier.getPath();
         if (!path.endsWith(".png")) {
             return null;
@@ -399,10 +399,10 @@ public enum AuxiliaryTextures {
     public static CompletableFuture<DecodedAuxiliaryImages> decodeImagesAsync(
         ResourceManager resourceManager, Executor decodeExecutor) {
         List<CompletableFuture<DecodedAuxiliaryImage>> decodeFutures = new ArrayList<>();
-        Map<ResourceLocation, Resource> auxiliaryResources = resourceManager.listResources("textures",
+        Map<Identifier, Resource> auxiliaryResources = resourceManager.listResources("textures",
             identifier -> classifyAuxiliaryResource(identifier) != null);
 
-        for (Map.Entry<ResourceLocation, Resource> resourceEntry : auxiliaryResources.entrySet()) {
+        for (Map.Entry<Identifier, Resource> resourceEntry : auxiliaryResources.entrySet()) {
             AuxiliaryTextures auxiliaryTexture = classifyAuxiliaryResource(resourceEntry.getKey());
             if (auxiliaryTexture == null) {
                 continue;
@@ -452,13 +452,13 @@ public enum AuxiliaryTextures {
             || path.startsWith("textures/flag/entity/");
     }
 
-    private record BaseImageKey(AuxiliaryTextures auxiliaryTexture, ResourceLocation identifier) {}
+    private record BaseImageKey(AuxiliaryTextures auxiliaryTexture, Identifier identifier) {}
 
-    private record AlignedImageKey(AuxiliaryTextures auxiliaryTexture, ResourceLocation identifier, int level,
+    private record AlignedImageKey(AuxiliaryTextures auxiliaryTexture, Identifier identifier, int level,
                                    int width, int height, NativeImage.Format format) {}
 
     private record UploadRegionKey(int baseTextureId,
-                                   ResourceLocation identifier,
+                                   Identifier identifier,
                                    int level,
                                    int offsetX,
                                    int offsetY,

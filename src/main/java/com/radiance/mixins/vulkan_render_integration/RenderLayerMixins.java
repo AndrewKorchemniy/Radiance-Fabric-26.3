@@ -6,7 +6,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import com.radiance.client.proxy.world.EntityProxy;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.TriState;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -39,7 +39,7 @@ public class RenderLayerMixins {
                     .setTransparencyState(RenderType.LIGHTNING_TRANSPARENCY)
                     .setOutputState(RenderType.WEATHER_TARGET)
                     .setTextureState(new RenderStateShard.TextureStateShard(
-                        ResourceLocation.withDefaultNamespace("textures/block/lightning.png"),
+                        Identifier.withDefaultNamespace("textures/block/lightning.png"),
                         TriState.FALSE,
                         false))
                     .createCompositeState(false));

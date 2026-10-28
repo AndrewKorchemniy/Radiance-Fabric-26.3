@@ -6,13 +6,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 public class TextureTracker {
 
     private static final AtomicLong nextTextureGeneration = new AtomicLong();
 
-    public static Map<ResourceLocation, Integer> textureID2GLID = new ConcurrentHashMap<>();
+    public static Map<Identifier, Integer> textureID2GLID = new ConcurrentHashMap<>();
     public static Map<Integer, Texture> GLID2Texture = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2SpecularGLID = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2NormalGLID = new ConcurrentHashMap<>();

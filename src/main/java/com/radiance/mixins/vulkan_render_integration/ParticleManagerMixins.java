@@ -15,7 +15,7 @@ import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.particle.ParticleRenderType;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -87,7 +87,7 @@ public class ParticleManagerMixins implements IParticleManagerExt {
 
         }
 
-        ResourceLocation particleId = BuiltInRegistries.PARTICLE_TYPE.getKey(parameters.getType());
+        Identifier particleId = BuiltInRegistries.PARTICLE_TYPE.getKey(parameters.getType());
         if (particleId != null) {
             ((IParticleExt) particle).radiance$setContentName(
                 EntityContentNames.toParticleContentName(particleId));
@@ -96,7 +96,7 @@ public class ParticleManagerMixins implements IParticleManagerExt {
 
     private static final class EntityContentNames {
 
-        private static String toParticleContentName(ResourceLocation particleId) {
+        private static String toParticleContentName(Identifier particleId) {
             if ("minecraft".equals(particleId.getNamespace())) {
                 return "/particle/" + particleId.getPath();
             }

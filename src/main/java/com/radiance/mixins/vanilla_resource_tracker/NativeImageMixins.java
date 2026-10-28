@@ -5,7 +5,7 @@ import com.radiance.client.texture.IdentifierInputStream;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.client.texture.TextureTracker.TextureTarget;
 import java.io.InputStream;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,7 +19,7 @@ public abstract class NativeImageMixins implements INativeImageExt {
     private TextureTarget target;
 
     @Unique
-    private ResourceLocation identifier = null;
+    private Identifier identifier = null;
 
     @Unique
     private NativeImage specularImage = null;
@@ -36,7 +36,7 @@ public abstract class NativeImageMixins implements INativeImageExt {
         NativeImage nativeImage = cir.getReturnValue();
 
         if (stream instanceof IdentifierInputStream) {
-            ResourceLocation identifier = ((IdentifierInputStream) stream).getResourceId();
+            Identifier identifier = ((IdentifierInputStream) stream).getResourceId();
             ((INativeImageExt) (Object) nativeImage).radiance$setIdentifier(identifier);
             cir.setReturnValue(nativeImage);
         } else {
@@ -55,12 +55,12 @@ public abstract class NativeImageMixins implements INativeImageExt {
     }
 
     @Override
-    public ResourceLocation radiance$getIdentifier() {
+    public Identifier radiance$getIdentifier() {
         return identifier;
     }
 
     @Override
-    public void radiance$setIdentifier(ResourceLocation id) {
+    public void radiance$setIdentifier(Identifier id) {
         this.identifier = id;
     }
 

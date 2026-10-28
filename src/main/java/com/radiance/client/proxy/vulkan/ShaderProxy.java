@@ -16,13 +16,13 @@ import java.nio.IntBuffer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.CompiledShaderProgram;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 public final class ShaderProxy {
 
-    private static final ResourceLocation WHITE_TEXTURE_ID = ResourceLocation.fromNamespaceAndPath("radiance",
+    private static final Identifier WHITE_TEXTURE_ID = Identifier.fromNamespaceAndPath("radiance",
         "generated/white");
     private static Integer whiteTextureId;
 
