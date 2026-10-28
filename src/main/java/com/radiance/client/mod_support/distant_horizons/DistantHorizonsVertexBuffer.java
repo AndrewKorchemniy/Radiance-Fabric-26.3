@@ -17,7 +17,13 @@ public class DistantHorizonsVertexBuffer implements IVertexBufferWrapper {
     };
     public final long id = nextId.incrementAndGet();
     private ByteBuffer vertices;
+    private int vertexCount;
     private long submittedWorldVersion;
+
+    @Override
+    public int getVertexCount() {
+        return vertexCount;
+    }
 
     @Override
     public void uploadVertexBuffer(ByteBuffer source, int vertexCount) {
@@ -30,6 +36,7 @@ public class DistantHorizonsVertexBuffer implements IVertexBufferWrapper {
             ByteBuffer input = source.duplicate().order(ByteOrder.nativeOrder());
             vertices = MemoryUtil.memAlloc(Math.multiplyExact(vertexCount, 40)).order(ByteOrder.nativeOrder());
             convertVertices(input, vertices, vertexCount);
+            this.vertexCount = vertexCount;
         } finally {
             if (Profiler.ENABLED) Profiler.exit();
         }

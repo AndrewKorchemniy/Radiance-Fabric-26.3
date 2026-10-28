@@ -42,8 +42,8 @@ public class DistantHorizonsSupport implements Vista.Source {
 
     public static synchronized void bind() {
         if (bound) { return; }
-        Config.Client.Advanced.Graphics.GenericRendering.dimensionEnabledCloudRenderingCsv.setApiValue("");
-        Config.Client.Advanced.Graphics.Quality.lodShading.setApiValue(EDhApiLodShading.AUTO);
+        Config.Client.Advanced.Graphics.GenericRendering.dimensionEnabledCloudRenderingCsv.setApiValue("", "Radiance");
+        Config.Client.Advanced.Graphics.Quality.lodShading.setApiValue(EDhApiLodShading.AUTO, "Radiance");
         new DistantHorizonsRenderApi().bindRenderers();
         bound = true;
         Vista.setSource(new DistantHorizonsSupport());
@@ -108,7 +108,7 @@ public class DistantHorizonsSupport implements Vista.Source {
             previousSelection = new long[0];
             com.seibel.distanthorizons.core.dataObjects.render.textures.BlockTextureRegistry.INSTANCE.clear();
             DistantHorizonsTextures.reset();
-            client.levelRenderer.allChanged();
+            client.levelExtractor.allChanged();
             for (var loaded : distantHorizonsWorld.getAllLoadedLevels()) {
                 if (loaded instanceof com.seibel.distanthorizons.core.level.IDhClientLevel clientLevel) {
                     clientLevel.clearRenderCache();

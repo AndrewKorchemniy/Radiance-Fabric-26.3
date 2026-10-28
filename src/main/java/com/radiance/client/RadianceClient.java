@@ -122,7 +122,7 @@ public class RadianceClient implements ClientModInitializer {
         }
 
         boolean shouldPressForward = client.player != null && client.level != null
-            && client.screen == null && client.isWindowActive() && client.mouseHandler.isMouseGrabbed();
+            && client.gui.screen() == null && client.isWindowActive() && client.mouseHandler.isMouseGrabbed();
         client.options.keyUp.setDown(shouldPressForward);
         profilerAutoForwardPressed = shouldPressForward;
     }
@@ -152,7 +152,7 @@ public class RadianceClient implements ClientModInitializer {
             roundProfilerLogValue(dz), roundProfilerLogValue(horizontalDelta),
             client.options.keyUp.isDown(), profilerAutoForwardPressed,
             client.isWindowActive(), client.mouseHandler.isMouseGrabbed(),
-            client.screen == null ? "none" : client.screen.getClass().getSimpleName());
+            client.gui.screen() == null ? "none" : client.gui.screen().getClass().getSimpleName());
 
         lastProfilerPlayerPosition = position;
         nextProfilerPlayerPositionLogNanos = now + PROFILER_PLAYER_POSITION_LOG_INTERVAL_NANOS;

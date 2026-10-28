@@ -107,8 +107,8 @@ public class DistantHorizonsObjects implements IDhGenericRenderer {
                 new float[]{shade.bottom, shade.top, shade.north, shade.south, shade.west, shade.east};
             if (group.boxes != boxes || group.light != light || !Arrays.equals(group.shading, shading)) {
                 group.pending.forEach(mesh -> mesh.close(worldVersion));
-                group.pending = build(boxes, light, shading, source.getIdentifierNamespace().equals("DistantHorizons")
-                    && source.getIdentifierPath().equals("Beacons"));
+                group.pending = build(boxes, light, shading, source.getResourceLocationNamespace().equals("DistantHorizons")
+                    && source.getResourceLocationPath().equals("Beacons"));
                 group.boxes = boxes;
                 group.light = light;
                 group.shading = shading;

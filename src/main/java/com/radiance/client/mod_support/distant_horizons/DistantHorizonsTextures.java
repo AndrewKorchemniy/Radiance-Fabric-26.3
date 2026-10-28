@@ -26,7 +26,7 @@ public class DistantHorizonsTextures {
 
     private static void update(BlockTextureRegistry registry) {
         int count = registry.getTileCount();
-        if (texture == 0) { texture = TextureUtil.generateTextureId(); }
+        if (texture == 0) { texture = TextureProxy.generateTextureId(); }
         if (rows == 0 || count > rows * 256 || count < uploaded) {
             int size = Math.max(16, rows);
             while (count > size * 256) { size *= 2; }

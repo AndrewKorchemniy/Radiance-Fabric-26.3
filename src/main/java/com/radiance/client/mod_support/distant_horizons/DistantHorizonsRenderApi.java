@@ -1,11 +1,11 @@
 package com.radiance.client.mod_support.distant_horizons;
 
+import com.seibel.distanthorizons.api.enums.config.EDhApiDepthDirection;
+import com.seibel.distanthorizons.api.enums.config.EDhApiDepthRange;
 import com.seibel.distanthorizons.api.enums.config.EDhApiRenderingApi;
 import com.seibel.distanthorizons.api.enums.config.EDhApiRenderingEngine;
 import com.seibel.distanthorizons.core.dataObjects.render.bufferBuilding.LodBufferContainer;
 import com.seibel.distanthorizons.core.dependencyInjection.SingletonInjector;
-import com.seibel.distanthorizons.core.render.EDhDepthRange;
-import com.seibel.distanthorizons.core.render.EDhRenderDepth;
 import com.seibel.distanthorizons.core.render.renderer.AbstractDebugWireframeRenderer;
 import com.seibel.distanthorizons.core.wrapperInterfaces.render.AbstractDhRenderApiDefinition;
 import com.seibel.distanthorizons.core.wrapperInterfaces.render.objects.*;
@@ -20,8 +20,8 @@ public class DistantHorizonsRenderApi extends AbstractDhRenderApiDefinition {
 
     @Override public String getEngineName() { return "Radiance Vista"; }
     @Override public boolean useSingleIbo() { return true; }
-    @Override public EDhRenderDepth getRenderDepth() { return EDhRenderDepth.FORWARD_Z; }
-    @Override public EDhDepthRange getDepthRange() { return EDhDepthRange.ZERO_TO_POS_ONE; }
+    @Override public EDhApiDepthDirection getDepthDirection() { return EDhApiDepthDirection.FORWARD_Z; }
+    @Override public EDhApiDepthRange getDepthRange() { return EDhApiDepthRange.ZERO_TO_POS_ONE; }
     @Override public EDhApiRenderingApi getRenderApi() { return EDhApiRenderingApi.VULKAN; }
     @Override public EDhApiRenderingEngine getRenderingEngine() { return EDhApiRenderingEngine.AUTO; }
     @Override public boolean isNativeRenderer() { return true; }
