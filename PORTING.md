@@ -54,32 +54,168 @@ On 1.21.4, Radiance runs a Vulkan renderer beside the game's OpenGL context.
 It intercepts GL calls (`vulkan_render_integration`) or copies the GL UI into
 Vulkan (`opengl_ui`), and MCVR owns its own instance, device and GLFW surface.
 
-On 26.3 the recommended approach is:
+On 26.3, Radiance runs on vanilla's Vulkan device instead. Vanilla keeps drawing
+the UI, hand and overlays, MCVR draws the world, and MCVR owns presentation so
+frame generation, vsync and the FPS limiter keep working.
 
-1. Force vanilla onto its Vulkan backend.
-2. Mixin into Vulkan device creation (`VulkanFeatureSets` / `VulkanPhysicalDevice`)
-   to enable the extensions MCVR needs, such as acceleration structures, ray
-   queries or ray tracing pipelines, buffer device address, and the DLSS/FSR/XeSS
-   requirements.
-3. Hand MCVR the vanilla `VkInstance`, `VkDevice`, queues and VMA allocator
-   instead of creating its own. Drop MCVR's GLFW code paths and present through
-   vanilla's surface.
-4. Render the world in MCVR into an image that vanilla composites, and let vanilla
-   draw the UI natively in Vulkan.
+### Device bootstrap
 
-This removes the whole OpenGL/Vulkan interop layer, the `opengl_ui` backend, the
-GLFW dependency in MCVR, and most of the GL-call interception mixins. That's
-roughly 30 of the 52 render integration mixins. The remaining mixins focus on
-capturing world geometry (chunk sections, entities, block entities, particles,
-fluids, sky/clouds) and feeding it to MCVR.
+All references are to `com.mojang.renderpearl.backend.vulkan` (VK) in the
+decompiled 26.3 sources.
 
-The alternative is to keep MCVR's own device and copy across APIs. That needs
-cross-device image sharing plus an SDL-based surface path, and keeps the
-interop overhead. Only fall back to it if vanilla's device creation can't
-be extended cleanly.
+- **Force Vulkan.** Cancel `PreferredGraphicsApi.getBackendsToTry()` and return
+  only `VulkanBackend`. This also removes the silent fallback to OpenGL, so an
+  unsupported GPU gets vanilla's clear "no supported graphics backend" error.
+  The `Minecraft` constructor resets the option after an unclean start, which
+  this bypasses.
+- **Instance.** `VulkanInstance` requests API 1.2. Raise it to 1.3 with a
+  `@ModifyArg` on `VkApplicationInfo.apiVersion`, since MCVR and XeSS need 1.3.
+  Add any extra instance extensions to the mutable `enabledExtensions` set
+  before it is turned into the create info. `checkBackendAvailable()` builds a
+  throwaway instance, so these mixins must be idempotent.
+- **Device features.** Add Radiance `FeatureSet`s in
+  `VulkanFeatureSets.optionalFeatureSets()` at RETURN. Optional sets don't
+  affect device suitability. Split them so one missing piece doesn't disable the
+  rest:
+  - "RT core": `VK_KHR_acceleration_structure`,
+    `VK_KHR_deferred_host_operations`, `VK_KHR_ray_query`, the
+    `accelerationStructure` and `rayQuery` features, and `bufferDeviceAddress`,
+    `descriptorIndexing`, `runtimeDescriptorArray`, `shaderSampledImageArrayNonUniformIndexing`,
+    `descriptorBindingPartiallyBound`, `scalarBlockLayout` and the other bits
+    MCVR's `device.cpp` enables. These must go on vanilla's existing
+    `VkPhysicalDeviceVulkan12Features` struct (`VK12_FEATURES_STRUCT`), not
+    the per-feature structs, or device creation fails validation.
+  - "RT pipeline": `VK_KHR_ray_tracing_pipeline`, if MCVR uses it.
+  - One set per upscaler and frame generator (DLSS, FSR, XeSS), from what each
+    SDK reports it needs.
+  - Don't add `VkPhysicalDeviceVulkan13Features`: vanilla already chains the
+    separate synchronization2 and dynamic rendering structs. Use individual
+    structs for any other 1.3 features.
+  - After creation, check the device's extension list. If "RT core" is missing,
+    show a clear "ray tracing GPU required" screen instead of crashing.
+- **VMA.** MCVR keeps its own VMA allocator on the shared `VkDevice`. LWJGL's
+  bundled VMA is a different build, so its allocator handle isn't safe to use
+  from MCVR. Vanilla's allocator stays as it is.
+- **Handles to native.** Add an `@Accessor` for `FrontendGpuDevice.backend`
+  and cast it to `VulkanDevice`. Pass `instance().vkInstance()`, `vkDevice()`,
+  the physical device, the graphics, compute and transfer queues with their
+  family indices, and the enabled extension list to a new
+  `RendererProxy.initRendererWithVulkanDevice`. The 1.21.4 OpenGL-UI path
+  (`initRendererWithOpenGLDevice`, where native attached to someone else's
+  device) is the closest template.
 
-The `radianceUiBackend` build switch (`opengl`/`vulkan`) goes away once this
-lands.
+### Frame flow and presentation
+
+- **Queues.** Vanilla submits only to the graphics queue, from the render thread,
+  with no locking. MCVR records into its own command pools. It either hands
+  command buffers to vanilla's `VulkanCommandEncoder.execute(cb)` on the render
+  thread, or runs long work (BLAS/TLAS builds, denoising) on the compute queue,
+  which vanilla never uses, and syncs with timeline semaphores through
+  `encoder.waitSemaphore` / `signalSemaphore`. Vanilla images and buffers use
+  exclusive sharing, so compute-queue access needs queue-family ownership
+  transfers.
+- **Stall timeout.** Vanilla throws if a submit takes over 5 seconds. Big
+  acceleration structure builds must not sit on the graphics queue.
+- **Where the world goes.** Keep `LevelRenderer.render` running so it still
+  compiles sections, updates occlusion and fires the loading-screen callback.
+  Skip only vanilla's world drawing with a `@WrapOperation` on
+  `FrameGraphBuilder.execute`. MCVR renders into its own images, then writes the
+  final world color into vanilla's main target before the UI pass (at
+  `GameRenderer.render`, between `renderLevel()` and `guiRenderer.render()`).
+  Vanilla images are always in `VK_IMAGE_LAYOUT_GENERAL`, are stored
+  bottom-up (the swapchain blit flips Y), and use reversed-Z depth.
+- **Presentation stays with MCVR.** Frame generation (DLSS, FSR, XeSS), vsync,
+  the FPS limiter and the presented-FPS counter all need to own present.
+  Replace vanilla's `VulkanGpuSurface` swapchain work: create MCVR's swapchain on
+  the `VkSurfaceKHR` vanilla gets from SDL, and route
+  `Minecraft.renderFrame`'s `blitFromTexture` / `present` to MCVR. Vanilla
+  still produces the composited main target, and MCVR takes it from there.
+- **Resizes.** SDL drives resizes through `Window`. Forward them to
+  `WindowProxy.onFramebufferSizeChanged`, and re-fetch main-target handles after
+  `RenderTarget.resize`, since vanilla frees the old images two submits later.
+
+### Textures
+
+On 1.21.4, every texture native samples is mirrored into a native-side ID space
+through `TextureUtil.generateTextureId`, `AbstractTexture.getId()` and
+`NativeImage._upload`. 26.3 has no integer texture IDs; textures are
+`GpuTexture` objects.
+
+On a shared device, MCVR can sample vanilla's images directly. The plan:
+
+- A `TextureTracker` map from `GpuTexture` to a native texture slot, filled when
+  textures are created and removed when they are closed. Native gets the
+  `VkImage` / `VkImageView` handles from `VulkanGpuTexture` /
+  `VulkanGpuTextureView` and adds them to its bindless descriptor array.
+- This removes the CPU-side upload mirroring (`NativeImageMixins`,
+  `TextureUtilMixins`, the OpenGL-UI twins). Uploads are vanilla's job.
+- PBR side textures (`_n` and `_s` sprites, emission) are still built by
+  `AuxiliaryTextures`, but allocated as vanilla `GpuTexture`s and tracked the
+  same way.
+- Native needs `VK_IMAGE_USAGE_SAMPLED` (already set for textures). Anything it
+  writes to needs `STORAGE`, which `VulkanConst.textureUsageToVk` never sets.
+  Add a mixin for Radiance-owned textures only.
+
+### Geometry capture
+
+| What | 1.21.4 hook | 26.3 hook |
+| --- | --- | --- |
+| Per-frame camera | `GameRenderer.renderLevel` matrices | `CameraRenderState` at `GameRenderer.renderLevel()` HEAD. Wrap `ProjectionMatrixBuffer.getBuffer` for the final bobbed projection. |
+| Terrain | `SectionCompiler.compile` rewrite, `ModelBlockRenderer.putQuadData`, `LiquidBlockRenderer.tesselate` | Wrap the `BlockQuadOutput` lambdas in `SectionCompiler.compile`. They give each `BakedQuad` (record with sprite, layer, tint, light emission and direction) and its `QuadInstance` color and light. Fluids go through `FluidRenderer.tesselate` / `vertex(...)`. Write Radiance's 40-byte PBR vertices into a side buffer per section. |
+| Section lifecycle | `RenderSection` `setCompiled`, `setDirty`, `releaseBuffers`; `ViewArea` | `CompileTask.doTask`, `RenderSection.setSectionMesh` / `releaseSectionMesh`, `SectionUpdateTracker`, `ViewArea` |
+| Off-screen sections | Rebuilt eagerly | 26.3 only recompiles visible dirty sections (`LevelExtractor.extract`). Ray-traced reflections and shadows need off-screen geometry too, so hook `SectionUpdateTracker` to queue off-screen rebuilds. |
+| Entities, block entities, items | `RenderType.draw(MeshData)` and a wrapped `MultiBufferSource` | Wrap `EntityRenderDispatcher.submit` and `BlockEntityRenderDispatcher.submit` in `LevelRenderer.submitEntities` / `submitBlockEntities`, passing Radiance's own `SubmitNodeCollector`, which tessellates straight into PBR vertex buffers. This keeps per-entity attribution. `StagedVertexBuffer.upload()` is the fallback, but it's shared with the hand and GUI passes. |
+| Hand and held items | `ItemInHandRenderer` | `FirstPersonHandsAndItemsRenderer.submitHandsWithItems`, via `GameRenderer.renderItemInHand(CameraRenderState, PlayerRenderState, GpuTextureView)` |
+| Item glint | `ItemRenderer.get*FoilBuffer` | `ItemFeatureRenderer.prepareMainSubmit`, keyed on `FoilType` |
+| Banners | `BannerRenderer.renderPatterns` | `BannerRenderer.submitPatternLayer`. Each layer is a separate `order(n)` submit. |
+| Particles | `ParticleEngine`, `SingleQuadParticle.renderRotatedQuad` | `ParticleEngine.add` / `tick`, `SingleQuadParticle.extractRotatedQuad`, `QuadParticleRenderState` |
+| Sky | `SkyRenderer` constructor redirect | `SkyRenderer.extractRenderState` → `SkyRenderState`. `SkyRenderer` is now created lazily in `addSkyPass`. |
+| Clouds | `CloudRenderer.render` rewrite | `CloudRenderer.prepare(...)` |
+| Weather | `LevelRenderer` weather | `WeatherEffectRenderer.extractRenderState` → `WeatherRenderState` (CPU rain and snow columns) |
+| Fog | `FogRenderer` | `FogRenderer.setupFog` → `FogData` |
+| Lightmap | CPU lightmap rewrite in `LightTexture` | `Lightmap.render(LightmapRenderState)` HEAD: capture the inputs (sky and block factors, night vision, darkness, tints) for the world uniform. The lightmap itself is a GPU texture, sampled through the texture tracker. |
+| Dimension effects | `DimensionSpecialEffects` | `DimensionType.skybox()` and `EnvironmentAttributes` through `camera.attributeProbe()` |
+
+26.3 vertex formats have no normal (`BLOCK` is 28 bytes: position, color,
+UV0, packed light). Radiance's PBR format is built by hand: `BufferBuilder`
+only writes the eight vanilla attribute names, so custom attributes are written
+straight into a `ByteBufferBuilder`. Normals come from `BakedQuad.direction()`
+or the quad's positions. `PBRVertexFormatElements` is rewritten as plain offset
+constants plus a `VertexFormat` built with `VertexFormat.builder()`.
+
+### What gets deleted
+
+Everything that existed to mirror OpenGL into Vulkan:
+
+- `mixins/opengl_ui/**`, `client/opengl_ui/**`
+- `GlStateManagerMixins`, `GlUniformMixins`, `GLXMixins`, `BufferRendererMixins`,
+  `CompiledShaderMixins`, `ShaderProgramMixins`, `ShaderLoaderMixins`,
+  `RenderPhaseTargetMixins`, `ScreenMixins`, `ReloadableResourceManagerImplMixins`,
+  `VideoWarningManagerWarningPatternLoaderMixins`, `WindowMixins` (its resize
+  forwarding moves to a new SDL hook)
+- `client/shader/**`, `ShaderProxy`, `PipelineStateProxy`, `DrawCommandProxy`,
+  `VulkanUiProxy` (its world composite moves to the frame flow above), the
+  `ofGL` half of `VulkanConstants`, the shader and uniform extension interfaces
+- `TextureUtilMixins`, `AbstractTextureMixins` (vulkan_render_integration) and
+  `NativeImageMixins` upload mirroring, replaced by the texture tracker
+- The `radianceUiBackend` build switch and the generated `UiBackendBuildConfig`
+  / `UiBackendRendererHooks` classes
+
+Jobs inside deleted code that must survive somewhere else:
+
+- `MinecraftClientMixins`: native init (now on the shared device), pipeline
+  load and build, the reload listener, per-frame submit, ambient occlusion off,
+  shutdown and saving options.
+- `GameRendererMixins`: the view matrix, per-frame entity build, hand rebuild
+  and FOV scale, the "should render world" gate, world-only screenshots.
+- `RenderSystemMixins`: the max texture size reported to atlases.
+- `ScreenshotRecorderMixins`: screenshots. With MCVR presenting, it reads back
+  the final image. World-only screenshots still go through native.
+
+The JNI surface shrinks to match: `ShaderProxy`, `PipelineStateProxy`,
+`DrawCommandProxy`, `VulkanUiProxy`, `OpenGLUiProxy` and the GL-presentation
+`RendererProxy` methods are removed, and MCVR's matching JNI files go with them
+in M3.
 
 ## Milestones
 
@@ -93,19 +229,24 @@ lands.
 
 ### M2 Render integration rewrite (Java)
 
-- Mechanical renames first: `Identifier`, the moved `RenderType`/`VertexFormat`
-  packages, and the option and GUI screen APIs.
-- Device bootstrap: force the Vulkan backend, extend its feature set, and pass
-  the handles to MCVR over JNI (new `RendererProxy` entry points).
-- Rewrite geometry capture against the 26.3 pipeline: `SectionMesh` and
-  `SectionRenderDispatcher` for terrain, `SubmitNodeCollector` and the feature
-  dispatchers for entities, block entities, items and particles, plus the new
-  `Lightmap` and fog.
-- Port the font and texture tracker mixins (`vanilla_resource_tracker`) to the
-  renderpearl texture API.
-- Port the settings screens to the 26.3 GUI API.
-- Done when `./gradlew compileJava` passes and the mixin config applies
-  without errors at game launch.
+Order of work, following the design above:
+
+1. Delete the OpenGL mirroring code and the `radianceUiBackend` switch.
+2. Mechanical renames and package moves (`Identifier`, `RenderType`,
+   `VertexFormat`, `BlockAndTintGetter`, `BakedQuad`, `FogRenderer`, `Util`,
+   `OptionEnum`).
+3. Device bootstrap: force Vulkan, the instance and feature-set mixins, the
+   backend accessor and `initRendererWithVulkanDevice`.
+4. Frame flow: skip vanilla world drawing, composite MCVR output before the UI,
+   and route present to MCVR.
+5. Texture tracker on `GpuTexture`, plus the font, atlas and PBR side textures.
+6. Geometry capture: terrain, fluids, entities, block entities, items, hand,
+   particles, sky, clouds, weather, fog and lightmap.
+7. Settings screens on `GuiGraphicsExtractor` and the new `OptionInstance` API.
+
+Done when `./gradlew compileJava` passes and the mixin config applies without
+errors at game launch. In-game rendering can't be checked until MCVR is ported
+in M3.
 
 ### M3 MCVR native port
 
