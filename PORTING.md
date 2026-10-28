@@ -10,8 +10,8 @@ and has to be ported alongside it.
 | Milestone | Status |
 | --- | --- |
 | M1 Build setup and Mojang names | Done: compiles on 1.21.4 with Mojang names, build targets 26.3 |
-| M2 Render integration rewrite (Java) | In progress: OpenGL mirroring removed, renames done, device bootstrap written; 685 compile errors left in 67 files (frame flow, textures, geometry capture, screens) |
-| M3 MCVR native port | Not started |
+| M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`). Not run in game: that needs M3 |
+| M3 MCVR native port | Not started. Native-side requirements collected below under "What M3 has to change" |
 | M4 Vanilla world rendering in game | Not started |
 | M5 Voxy integration | Not started |
 | M6 Distant Horizons integration | Not started |
@@ -253,13 +253,48 @@ in M3.
 
 ### M3 MCVR native port
 
-- Regenerate JNI headers from the M2 Java sources.
-- Replace instance, device and surface creation with handles adopted from
-  vanilla. Remove GLFW.
+- Regenerate JNI headers from the M2 Java sources (`./gradlew compileJava`
+  writes them to `src/main/native/include`).
 - Build MCVR on Windows (MSVC 2022, Vulkan SDK, CMake) and Linux (GCC/Clang).
-- Done when `core.dll`/`libcore.so` passes the build's native checks
-  (`verifyNativeUiBackendVariant`, `verifyNativeProfilerVariant`) and loads at
-  startup.
+- Done when `core.dll`/`libcore.so` passes the build's native check
+  (`verifyNativeLibrary`, which looks for `initRendererWithVulkanDevice`) and
+  the game reaches the title screen with Radiance loaded.
+
+#### What M3 has to change
+
+What the Java side now expects of native, collected during M2:
+
+- **Device.** Replace instance, physical device and device creation with
+  `RendererProxy.initRendererWithVulkanDevice`, which passes vanilla's handles,
+  queues, surface and the enabled extension lists. Keep a separate VMA
+  allocator and separate command pools. Remove GLFW and the OpenGL interop.
+  Query the DLSS, FSR and XeSS device extension requirements before vanilla
+  creates the device (`RadianceVulkanFeatures.featureSets()` has a TODO), so
+  they can be added as feature sets.
+- **Swapchain.** `configureSwapchain`, `isSwapchainSuboptimal`,
+  `acquireContext` (now returns success), `setPresentSource` and
+  `submitCommandAndPresent` replace native's GLFW swapchain. The present source
+  is vanilla's main target: `VK_IMAGE_LAYOUT_GENERAL`, RGBA8, stored bottom-up.
+- **World frame.** `recordWorldFrame` returns an ended command buffer that
+  writes the world into vanilla's main target. Vanilla appends it to its own
+  submission, so native must keep it alive for two submissions and must not
+  submit it itself. Use full memory barriers around vanilla's images.
+- **Textures.** `importVulkanImageNative` registers vanilla's `VkImage`s
+  (native makes its own views and never frees them). Released through
+  `releaseTexture` when vanilla frees the image. Imports can arrive from any
+  thread that creates textures.
+- **Vertex layouts.** `BLOCK` is now 28 bytes with no normal; `ENTITY` and
+  `PARTICLE` are unchanged. The PBR layouts are unchanged (64 and 40 bytes).
+  Draw mode 1 (`LINE_STRIP`) is gone and 8 (`POINTS`) is new.
+- **Sky.** The moon is now one texture per phase instead of a 4×2 grid, and the
+  sun is `textures/environment/celestial/sun.png`.
+- **Fog and lightmap.** `updateWorldUniform` sends the nearer of 26.3's
+  environmental and render-distance fogs; the lightmap inputs follow
+  `LightmapRenderState`.
+- **Removed JNI.** `initRenderer(String[], long)`, the OpenGL presentation
+  methods, `maxSupportedTextureSize`, `takeScreenshot`, `WindowProxy`,
+  `ShaderProxy`, `PipelineStateProxy`, `DrawCommandProxy`, `VulkanUiProxy`,
+  `OpenGLUiProxy`, and BufferProxy's UI upload methods.
 
 ### M4 Vanilla world rendering in game
 

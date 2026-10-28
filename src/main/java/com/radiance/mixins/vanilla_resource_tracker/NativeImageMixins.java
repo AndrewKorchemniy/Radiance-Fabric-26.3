@@ -30,8 +30,8 @@ public abstract class NativeImageMixins implements INativeImageExt {
     @Unique
     private NativeImage flagImage = null;
 
-    @Inject(method = "read(Lcom/mojang/blaze3d/platform/NativeImage$Format;Ljava/io/InputStream;)Lcom/mojang/blaze3d/platform/NativeImage;", at = @At(value = "RETURN"), cancellable = true)
-    private static void readIdentifier(NativeImage.Format format, InputStream stream,
+    @Inject(method = "read(Ljava/io/InputStream;)Lcom/mojang/blaze3d/platform/NativeImage;", at = @At(value = "RETURN"), cancellable = true)
+    private static void readIdentifier(InputStream stream,
         CallbackInfoReturnable<NativeImage> cir) {
         NativeImage nativeImage = cir.getReturnValue();
 

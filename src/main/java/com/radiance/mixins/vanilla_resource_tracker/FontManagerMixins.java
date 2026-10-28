@@ -8,27 +8,25 @@ import net.minecraft.client.gui.font.FontSet;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.Coerce;
 
+/**
+ * Radiance looks up glyphs off the render thread while building text geometry, so font set lookups
+ * from other threads must not race a resource reload. 26.3's {@code apply} invalidates its own font
+ * provider caches, so only the locking is needed.
+ */
 @Mixin(FontManager.class)
 public abstract class FontManagerMixins {
-    @Shadow
-    private volatile FontSet lastFontSetCache;
 
     @WrapMethod(method = "apply(Lnet/minecraft/client/gui/font/FontManager$Preparation;Lnet/minecraft/util/profiling/ProfilerFiller;)V")
     private void synchronizeFontReload(@Coerce Object preparation, ProfilerFiller profiler,
         Operation<Void> original) {
         synchronized (this) {
-            try {
-                original.call(preparation, profiler);
-            } finally {
-                lastFontSetCache = null;
-            }
+            original.call(preparation, profiler);
         }
     }
 
-    @WrapMethod(method = "getFontSetCached")
+    @WrapMethod(method = "getFontSetRaw")
     private FontSet synchronizeBackgroundFontLookup(Identifier font,
         Operation<FontSet> original) {
         if (RenderSystem.isOnRenderThread()) {
