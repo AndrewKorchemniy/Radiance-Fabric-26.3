@@ -10,7 +10,7 @@ and has to be ported alongside it.
 | Milestone | Status |
 | --- | --- |
 | M1 Build setup and Mojang names | Done: compiles on 1.21.4 with Mojang names, build targets 26.3 |
-| M2 Render integration rewrite (Java) | Not started: ~1,000 compile errors in 97 files |
+| M2 Render integration rewrite (Java) | In progress: OpenGL mirroring removed, renames done, device bootstrap written; 685 compile errors left in 67 files (frame flow, textures, geometry capture, screens) |
 | M3 MCVR native port | Not started |
 | M4 Vanilla world rendering in game | Not started |
 | M5 Voxy integration | Not started |
