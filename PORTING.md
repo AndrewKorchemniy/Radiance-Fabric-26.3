@@ -119,11 +119,17 @@ decompiled 26.3 sources.
 - **Where the world goes.** Keep `LevelRenderer.render` running so it still
   compiles sections, updates occlusion and fires the loading-screen callback.
   Skip only vanilla's world drawing with a `@WrapOperation` on
-  `FrameGraphBuilder.execute`. MCVR renders into its own images, then writes the
-  final world color into vanilla's main target before the UI pass (at
-  `GameRenderer.render`, between `renderLevel()` and `guiRenderer.render()`).
-  Vanilla images are always in `VK_IMAGE_LAYOUT_GENERAL`, are stored
-  bottom-up (the swapchain blit flips Y), and use reversed-Z depth.
+  `FrameGraphBuilder.execute`. The world never enters vanilla's main target:
+  vanilla clears it to transparent black and draws the hand overlay, screen
+  effects and GUI there with straight-alpha blending. At present time MCVR
+  renders the world in its own submission and composites the main target over
+  it, exactly as it composited the OpenGL UI surface on 1.21.4. That keeps
+  MCVR's frame structure, async compute and frame generation's separate UI
+  handling, and nothing is spliced into vanilla's command buffers. (An earlier
+  plan wrote the world into the main target mid-frame; the UI-surface approach
+  replaced it at the start of M3.) Vanilla images are always in
+  `VK_IMAGE_LAYOUT_GENERAL`, are stored bottom-up (the swapchain blit flips Y),
+  and use reversed-Z depth.
 - **Presentation stays with MCVR.** Frame generation (DLSS, FSR, XeSS), vsync,
   the FPS limiter and the presented-FPS counter all need to own present.
   Replace vanilla's `VulkanGpuSurface` swapchain work: create MCVR's swapchain on
@@ -275,10 +281,12 @@ What the Java side now expects of native, collected during M2:
   `acquireContext` (now returns success), `setPresentSource` and
   `submitCommandAndPresent` replace native's GLFW swapchain. The present source
   is vanilla's main target: `VK_IMAGE_LAYOUT_GENERAL`, RGBA8, stored bottom-up.
-- **World frame.** `recordWorldFrame` returns an ended command buffer that
-  writes the world into vanilla's main target. Vanilla appends it to its own
-  submission, so native must keep it alive for two submissions and must not
-  submit it itself. Use full memory barriers around vanilla's images.
+- **UI surface.** The present source is the UI surface: vanilla's main target
+  with the UI over a transparent background. Native renders the world as before
+  and fuses this image over it (flipping Y) in place of the OpenGL UI surface.
+  Vanilla submits its frame before calling present, on the same queue, so
+  native's submission runs after it; use full memory barriers around vanilla's
+  images and leave them in `VK_IMAGE_LAYOUT_GENERAL`.
 - **Textures.** `importVulkanImageNative` registers vanilla's `VkImage`s
   (native makes its own views and never frees them). Released through
   `releaseTexture` when vanilla frees the image. Imports can arrive from any

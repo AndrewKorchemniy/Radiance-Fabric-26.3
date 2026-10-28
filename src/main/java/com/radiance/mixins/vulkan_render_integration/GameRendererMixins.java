@@ -3,12 +3,10 @@ package com.radiance.mixins.vulkan_render_integration;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.radiance.client.proxy.vulkan.RendererProxy;
 import com.radiance.client.proxy.world.EntityProxy;
-import com.radiance.client.vulkan.WorldComposite;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
@@ -37,9 +35,6 @@ public abstract class GameRendererMixins implements IGameRendererExt {
     @Unique
     private final Matrix4f radiance$viewMatrix = new Matrix4f();
 
-    @Shadow
-    public abstract RenderTarget mainRenderTarget();
-
     @Inject(method = "render()V", at = @At("HEAD"))
     private void radiance$shouldRenderWorld(CallbackInfo ci) {
         RendererProxy.shouldRenderWorld(this.gameRenderState.shouldRenderLevel
@@ -62,14 +57,15 @@ public abstract class GameRendererMixins implements IGameRendererExt {
 
     /**
      * After vanilla's level pass (which now only extracts and compiles, see
-     * {@code LevelRendererFrameMixins}) and before the 3D HUD, build this frame's entities and put
-     * the ray-traced world into the main target, so the hand overlay, screen effects and GUI land on
-     * top of it.
+     * {@code LevelRendererFrameMixins}), build this frame's entities. The world itself is not drawn
+     * into the main target: vanilla leaves it cleared to transparent and draws the 3D HUD and GUI
+     * there, and native composites that over the ray-traced world when it presents (see
+     * {@code VulkanGpuSurfaceMixins}).
      */
     @Inject(method = "renderLevel()V",
         at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/renderer/GameRenderer;render3dHud(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lnet/minecraft/client/renderer/state/level/PlayerRenderState;Lnet/minecraft/client/renderer/state/OptionsRenderState;Z)V"))
-    private void radiance$compositeWorld(CallbackInfo ci, @Local CameraRenderState cameraState,
+    private void radiance$buildEntities(CallbackInfo ci, @Local CameraRenderState cameraState,
         @Local PlayerRenderState playerState) {
         // Radiance traces the first-person hand and held items as part of the world, so it is queued
         // here, before this frame's entity build, rather than in vanilla's hand pass (which runs later
@@ -83,7 +79,6 @@ public abstract class GameRendererMixins implements IGameRendererExt {
                 worldTanHalfFov / handTanHalfFov);
         }
         EntityProxy.build();
-        WorldComposite.renderWorldInto(this.mainRenderTarget());
     }
 
     @Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)

@@ -65,19 +65,13 @@ public class RendererProxy {
     public static native boolean acquireContext();
 
     /**
-     * The image holding this frame's final picture (the world composited under vanilla's UI), in
-     * {@code VK_IMAGE_LAYOUT_GENERAL} and stored bottom-up.
+     * The image vanilla drew this frame's UI into: its main target, cleared to transparent black, with
+     * the GUI, hand overlay and screen effects blended on top (straight alpha, coverage in the alpha
+     * channel). Native composites it over the ray-traced world when it presents, as it did with the
+     * OpenGL UI surface on 1.21.4. The image is RGBA8 in {@code VK_IMAGE_LAYOUT_GENERAL} and stored
+     * bottom-up.
      */
     public static native void setPresentSource(long vkImage, long vkImageView, int width, int height);
-
-    /**
-     * Records this frame's world rendering, ending with the world written into {@code vkImage}
-     * (vanilla's main color target, in {@code VK_IMAGE_LAYOUT_GENERAL}, stored bottom-up).
-     *
-     * @return the recorded, ended {@code VkCommandBuffer} handle, or 0 when no world is rendered this
-     *     frame
-     */
-    public static native long recordWorldFrame(long vkImage, long vkImageView, int width, int height);
 
     private static native void submitCommand();
 
