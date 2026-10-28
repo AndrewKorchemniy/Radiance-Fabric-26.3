@@ -69,19 +69,12 @@ public abstract class GameRendererMixins implements IGameRendererExt {
     @Inject(method = "renderLevel()V",
         at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/renderer/GameRenderer;render3dHud(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lnet/minecraft/client/renderer/state/level/PlayerRenderState;Lnet/minecraft/client/renderer/state/OptionsRenderState;Z)V"))
-    private void radiance$compositeWorld(CallbackInfo ci) {
-        EntityProxy.build();
-        WorldComposite.renderWorldInto(this.mainRenderTarget());
-    }
-
-    /**
-     * Radiance traces the first-person hand and held items as part of the world, so vanilla's
-     * raster pass is skipped. The hand uses its own FOV; the ratio lets native draw it with the
-     * world's projection.
-     */
-    @Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
-    private void radiance$traceHand(CameraRenderState cameraState, PlayerRenderState playerState,
-        GpuTextureView depthTextureView, CallbackInfo ci) {
+    private void radiance$compositeWorld(CallbackInfo ci, @Local CameraRenderState cameraState,
+        @Local PlayerRenderState playerState) {
+        // Radiance traces the first-person hand and held items as part of the world, so it is queued
+        // here, before this frame's entity build, rather than in vanilla's hand pass (which runs later
+        // and is skipped). The hand uses its own FOV; the ratio lets native draw it with the world's
+        // projection.
         if (EntityProxy.isEntityNativeTransferEnabled()) {
             // m11 of a perspective projection is 1 / tan(fovY / 2).
             float worldTanHalfFov = 1.0F / cameraState.projectionMatrix.m11();
@@ -89,6 +82,13 @@ public abstract class GameRendererMixins implements IGameRendererExt {
             EntityProxy.queueHandRebuild(cameraState, playerState,
                 worldTanHalfFov / handTanHalfFov);
         }
+        EntityProxy.build();
+        WorldComposite.renderWorldInto(this.mainRenderTarget());
+    }
+
+    @Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true)
+    private void radiance$skipRasterHand(CameraRenderState cameraState, PlayerRenderState playerState,
+        GpuTextureView depthTextureView, CallbackInfo ci) {
         ci.cancel();
     }
 

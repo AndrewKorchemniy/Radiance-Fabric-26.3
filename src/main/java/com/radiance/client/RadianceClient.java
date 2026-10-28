@@ -43,6 +43,9 @@ public class RadianceClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        if (Boolean.getBoolean("radiance.mixinAudit")) {
+            auditMixinsAndExit();
+        }
         ModSupport.initialize();
         if (Profiler.ENABLED) {
             ClientTickEvents.END_CLIENT_TICK.register(RadianceClient::tickProfiler);
@@ -114,6 +117,18 @@ public class RadianceClient implements ClientModInitializer {
             updateProfilerAutoForward(client);
             logProfilerPlayerPosition(client);
         }
+    }
+
+    /**
+     * Development check, run by {@code ./gradlew runAuditMixins}: loads every mixin target class so
+     * that a target or injection point that does not match this Minecraft version fails now, without
+     * needing the native renderer or a world. Mixins are required, so the first mismatch throws.
+     */
+    private static void auditMixinsAndExit() {
+        LOGGER.info("Radiance mixin audit: applying all mixins");
+        org.spongepowered.asm.mixin.MixinEnvironment.getCurrentEnvironment().audit();
+        LOGGER.info("Radiance mixin audit passed");
+        System.exit(0);
     }
 
     private static void updateProfilerAutoForward(Minecraft client) {

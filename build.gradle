@@ -101,6 +101,12 @@ loom {
         client {
             runDir "run"
         }
+        // Applies every mixin and exits, without the native renderer: ./gradlew runAuditMixins
+        auditMixins {
+            client()
+            runDir "run"
+            vmArg "-Dradiance.mixinAudit=true"
+        }
     }
 }
 
