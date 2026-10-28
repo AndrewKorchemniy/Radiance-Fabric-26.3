@@ -13,6 +13,7 @@ import java.util.Deque;
 import java.util.List;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.options.VideoSettingsScreen;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Util;
@@ -28,6 +29,7 @@ import net.minecraft.util.Util;
  *   <li>{@code run <command>}: a server command with owner permission, e.g.
  *       {@code run time set 13000} or {@code run tp @p 0 100 0 90 20}. Needs a singleplayer world.</li>
  *   <li>{@code respawn}: respawns the player if dead.</li>
+ *   <li>{@code open video|none}: opens the video settings screen, or closes the current screen.</li>
  *   <li>{@code wait <ticks>}: pauses the queue.</li>
  *   <li>{@code screenshot <name>}: saves the next presented frame as {@code <directory>/<name>.png}.</li>
  *   <li>{@code quit}: closes the game.</li>
@@ -108,6 +110,16 @@ public final class TestHarness {
                 if (minecraft.player != null && minecraft.player.isDeadOrDying()) {
                     minecraft.player.respawn();
                     minecraft.gui.setScreen(null);
+                }
+            }
+            case "open" -> {
+                if (argument.equals("video")) {
+                    minecraft.gui.setScreen(new VideoSettingsScreen(minecraft.gui.screen(), minecraft,
+                        minecraft.options));
+                } else if (argument.equals("none")) {
+                    minecraft.gui.setScreen(null);
+                } else {
+                    log("! unknown screen: " + argument);
                 }
             }
             case "wait" -> waitTicks = Integer.parseInt(argument);
