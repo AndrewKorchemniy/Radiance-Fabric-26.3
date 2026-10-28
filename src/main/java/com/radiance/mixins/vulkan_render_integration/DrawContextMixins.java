@@ -1,29 +1,33 @@
 package com.radiance.mixins.vulkan_render_integration;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.radiance.client.gui.OrientedQuadRenderState;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IDrawContextExt;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.rendertype.RenderType;
-import org.joml.Matrix4f;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.state.gui.GuiRenderState;
+import org.joml.Matrix3x2f;
+import org.joml.Matrix3x2fStack;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(GuiGraphics.class)
+@Mixin(GuiGraphicsExtractor.class)
 public class DrawContextMixins implements IDrawContextExt {
 
     @Final
     @Shadow
-    private PoseStack pose;
+    private Matrix3x2fStack pose;
 
     @Final
     @Shadow
-    private MultiBufferSource.BufferSource bufferSource;
+    private GuiRenderState guiRenderState;
+
+    @Final
+    @Shadow
+    private GuiGraphicsExtractor.ScissorStack scissorStack;
 
     @Override
-    public void radiance$drawOrientedQuad(RenderType layer, float x1, float y1, float x2,
+    public void radiance$drawOrientedQuad(RenderPipeline pipeline, float x1, float y1, float x2,
         float y2, float thickness, int color) {
         float dx = x2 - x1;
         float dy = y2 - y1;
@@ -35,12 +39,13 @@ public class DrawContextMixins implements IDrawContextExt {
         float nx = -dy / len * (thickness / 2f);
         float ny = dx / len * (thickness / 2f);
 
-        Matrix4f matrix = pose.last().pose();
-        VertexConsumer buffer = bufferSource.getBuffer(layer);
-
-        buffer.addVertex(matrix, x1 + nx, y1 + ny, 0).setColor(color);
-        buffer.addVertex(matrix, x2 + nx, y2 + ny, 0).setColor(color);
-        buffer.addVertex(matrix, x2 - nx, y2 - ny, 0).setColor(color);
-        buffer.addVertex(matrix, x1 - nx, y1 - ny, 0).setColor(color);
+        // GUI drawing is retained now: record the quad, GuiRenderer builds the vertices later
+        guiRenderState.addGuiElement(new OrientedQuadRenderState(pipeline,
+            new Matrix3x2f(pose),
+            x1 + nx, y1 + ny,
+            x2 + nx, y2 + ny,
+            x2 - nx, y2 - ny,
+            x1 - nx, y1 - ny,
+            color, scissorStack.peek()));
     }
 }

@@ -8,11 +8,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 public class ModuleAttributeScreen extends Screen {
@@ -88,15 +89,16 @@ public class ModuleAttributeScreen extends Screen {
     public void onClose() {
         Pipeline.getModuleAttributes(module);
         Pipeline.savePipeline();
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft.getInstance().gui.setScreen(parent);
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY,
+        float delta) {
         syncResetAllButton();
-        super.render(context, mouseX, mouseY, delta);
+        super.extractRenderState(context, mouseX, mouseY, delta);
 
-        context.drawString(font, module.translateText(module.name), 10, HEADER_HEIGHT + 8, 0xFFEAEAEA);
+        context.text(font, module.translateText(module.name), 10, HEADER_HEIGHT + 8, 0xFFEAEAEA);
 
         int visibleRowCount = visibleRowCount();
 
@@ -104,7 +106,7 @@ public class ModuleAttributeScreen extends Screen {
             for (Row row : rows) {
                 setRowVisible(row, false);
             }
-            context.drawString(font,
+            context.text(font,
                 Component.translatable(MODULE_ATTRIBUTE_SCREEN_NO_ATTRIBUTES), 10, 60, 0xFFB0B0B0);
             return;
         }
@@ -131,7 +133,7 @@ public class ModuleAttributeScreen extends Screen {
             AttributeWidgetUtil.TooltipFocus rowFocus = AttributeWidgetUtil.tooltipFocus(ROW_LEFT,
                 y, this.width - ROW_RIGHT, y + ROW_HEIGHT);
             if (withinViewport) {
-                context.drawString(font, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
+                context.text(font, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
                 if (mouseX >= ROW_LEFT && mouseX <= ROW_LEFT + font.width(label)
                     && mouseY >= y + 4 && mouseY <= y + 18) {
                     hoveredConfig = row.cfg;
@@ -204,37 +206,36 @@ public class ModuleAttributeScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0 && AttributeWidgetUtil.isVerticalScrollbarMouseOver(mouseX, mouseY,
-            this.width, listTopY(), viewportHeight(), visibleContentHeight())) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (event.button() == 0 && AttributeWidgetUtil.isVerticalScrollbarMouseOver(event.x(),
+            event.y(), this.width, listTopY(), viewportHeight(), visibleContentHeight())) {
             scrollbarDragging = true;
-            scrollbarDragOffsetY = AttributeWidgetUtil.verticalScrollbarDragOffsetY(mouseY,
+            scrollbarDragOffsetY = AttributeWidgetUtil.verticalScrollbarDragOffsetY(event.y(),
                 listTopY(), viewportHeight(), visibleContentHeight(), scrollY);
-            scrollY = AttributeWidgetUtil.scrollFromVerticalScrollbarDrag(mouseY,
+            scrollY = AttributeWidgetUtil.scrollFromVerticalScrollbarDrag(event.y(),
                 scrollbarDragOffsetY, listTopY(), viewportHeight(), visibleContentHeight());
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event, doubleClick);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX,
-        double deltaY) {
-        if (scrollbarDragging && button == 0) {
-            scrollY = AttributeWidgetUtil.scrollFromVerticalScrollbarDrag(mouseY,
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        if (scrollbarDragging && event.button() == 0) {
+            scrollY = AttributeWidgetUtil.scrollFromVerticalScrollbarDrag(event.y(),
                 scrollbarDragOffsetY, listTopY(), viewportHeight(), visibleContentHeight());
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event, deltaX, deltaY);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0 && scrollbarDragging) {
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (event.button() == 0 && scrollbarDragging) {
             scrollbarDragging = false;
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(event);
     }
 
     private int listTopY() {

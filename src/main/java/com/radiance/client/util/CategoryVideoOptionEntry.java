@@ -3,7 +3,7 @@ package com.radiance.client.util;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.OptionsList;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -28,11 +28,11 @@ public class CategoryVideoOptionEntry extends OptionsList.Entry {
     }
 
     @Override
-    public void render(GuiGraphics context, int index, int y, int x, int entryWidth,
-        int entryHeight, int mouseX, int mouseY, boolean hovered, float tickDelta) {
-        context.drawString(
+    public void extractContent(GuiGraphicsExtractor context, int mouseX, int mouseY,
+        boolean hovered, float tickDelta) {
+        context.text(
             this.client.font, this.text, parent.getWidth() / 2 - this.textWidth / 2,
-            y + entryHeight - 9 - 1, CommonColors.WHITE
+            this.getContentBottom() - 9 - 1, CommonColors.WHITE
         );
     }
 

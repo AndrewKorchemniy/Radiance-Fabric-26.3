@@ -16,13 +16,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -161,7 +164,7 @@ public class RenderPipelineScreen extends Screen {
             }).bounds(toggleX, 6, toggleW, 20).build());
 
         addRenderableWidget(Button.builder(Component.translatable(RENDER_PIPELINE_SCREEN_SHADER_PACK),
-                button -> Minecraft.getInstance().setScreen(new ShaderPackScreen(this)))
+                button -> Minecraft.getInstance().gui.setScreen(new ShaderPackScreen(this)))
             .bounds(shaderPackX, 6, shaderPackW, 20)
             .build());
 
@@ -278,13 +281,14 @@ public class RenderPipelineScreen extends Screen {
 
         rebuildFuture.join();
         rebuildFuture = null;
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft.getInstance().gui.setScreen(parent);
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY,
+        float delta) {
+        // The background is extracted by Screen before this, in its own stratum
         if (isRebuilding()) {
-            this.renderBackground(context, mouseX, mouseY, delta);
             renderRebuildOverlay(context);
             if (rebuildQueued) {
                 rebuildQueued = false;
@@ -298,19 +302,17 @@ public class RenderPipelineScreen extends Screen {
         }
         syncResetAllButton();
 
-        this.renderBackground(context, mouseX, mouseY, delta);
-
-        context.pose().pushPose();
-        context.pose().scale(GLOBAL_SCALE, GLOBAL_SCALE, 1f);
+        context.pose().pushMatrix();
+        context.pose().scale(GLOBAL_SCALE, GLOBAL_SCALE);
 
         int scaledMouseX = (int) (mouseX / GLOBAL_SCALE);
         int scaledMouseY = (int) (mouseY / GLOBAL_SCALE);
 
         for (Renderable drawable : this.renderables) {
-            drawable.render(context, scaledMouseX, scaledMouseY, delta);
+            drawable.extractRenderState(context, scaledMouseX, scaledMouseY, delta);
         }
 
-        context.drawString(font,
+        context.text(font,
             Component.translatable(RENDER_PIPELINE_SCREEN_BACK_HINT), 10, HEADER_HEIGHT + 8, 0xFFEAEAEA);
 
         HoveredPresetAttribute hoveredPresetAttribute = null;
@@ -322,23 +324,20 @@ public class RenderPipelineScreen extends Screen {
             drawConnections(context);
 
             if (activeSelector != null) {
-                context.pose().pushPose();
-                context.pose().translate(0, 0, 200);
+                // No z translation in 2D GUI poses anymore; a new stratum draws on top
+                context.nextStratum();
                 activeSelector.render(context, scaledMouseX, scaledMouseY);
-                context.pose().popPose();
             }
         } else {
             hoveredPresetAttribute = renderPresetMode(context, scaledMouseX, scaledMouseY);
             if (activePresetSelector != null) {
-                context.pose().pushPose();
-                context.pose().translate(0, 0, 200);
+                context.nextStratum();
                 activePresetSelector.render(context, scaledMouseX, scaledMouseY);
-                context.pose().popPose();
                 hoveredPresetAttribute = null;
             }
         }
 
-        context.pose().popPose();
+        context.pose().popMatrix();
 
         if (hoveredPresetAttribute != null) {
             AttributeWidgetUtil.drawAttributeTooltip(context, font,
@@ -355,7 +354,7 @@ public class RenderPipelineScreen extends Screen {
         return (int) (this.height / GLOBAL_SCALE);
     }
 
-    private HoveredPresetAttribute renderPresetMode(GuiGraphics ctx, int mouseX, int mouseY) {
+    private HoveredPresetAttribute renderPresetMode(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
         int sw = scaledW();
         int x0 = 10;
         int y0 = presetListTopY();
@@ -401,7 +400,7 @@ public class RenderPipelineScreen extends Screen {
 
                 if (visible) {
                     Component label = block.module.translateText(row.cfg.name);
-                    ctx.drawString(font, label, x0 + 10, ry + 6, 0xFFD0D0D0);
+                    ctx.text(font, label, x0 + 10, ry + 6, 0xFFD0D0D0);
                     if (mouseX >= x0 + 10 && mouseX <= x0 + 10 + font.width(label)
                         && mouseY >= ry + 4 && mouseY <= ry + 18) {
                         hoveredAttribute = new HoveredPresetAttribute(block.module, row.cfg,
@@ -473,7 +472,7 @@ public class RenderPipelineScreen extends Screen {
             Math.round((y + PRESET_ROW_HEIGHT) * GLOBAL_SCALE));
     }
 
-    private void renderRebuildOverlay(GuiGraphics context) {
+    private void renderRebuildOverlay(GuiGraphicsExtractor context) {
         context.fill(0, 0, this.width, this.height, 0xE0000000);
 
         int popupWidth = 160;
@@ -487,7 +486,7 @@ public class RenderPipelineScreen extends Screen {
         context.fill(x0, y0, x0 + 1, y0 + popupHeight, 0xFFFFFFFF);
         context.fill(x0 + popupWidth - 1, y0, x0 + popupWidth, y0 + popupHeight, 0xFFFFFFFF);
 
-        context.drawCenteredString(font,
+        context.centeredText(font,
             Component.translatable(RENDER_PIPELINE_SCREEN_REBUILDING),
             this.width / 2, y0 + 9, 0xFFEAEAEA);
     }
@@ -570,7 +569,7 @@ public class RenderPipelineScreen extends Screen {
         return null;
     }
 
-    private void drawBezier(GuiGraphics ctx, int x1, int y1, int x2, int y2, int color) {
+    private void drawBezier(GuiGraphicsExtractor ctx, int x1, int y1, int x2, int y2, int color) {
         int segments = 32;
         float prevX = x1;
         float prevY = y1;
@@ -589,7 +588,7 @@ public class RenderPipelineScreen extends Screen {
             float cx = b0 * x1 + b1 * (x1 + ctrlOffset) + b2 * (x2 - ctrlOffset) + b3 * x2;
             float cy = b0 * y1 + b1 * y1 + b2 * y2 + b3 * y2;
 
-            ((IDrawContextExt) (Object) ctx).radiance$drawOrientedQuad(RenderType.gui(),
+            ((IDrawContextExt) (Object) ctx).radiance$drawOrientedQuad(RenderPipelines.GUI,
                 prevX, prevY, cx, cy, thickness, color);
 
             prevX = cx;
@@ -597,7 +596,7 @@ public class RenderPipelineScreen extends Screen {
         }
     }
 
-    private void drawConnections(GuiGraphics context) {
+    private void drawConnections(GuiGraphicsExtractor context) {
         for (ModuleConnection link : moduleConnections) {
             PortPos p1 = getPortPosition(link.src, true);
             PortPos p2 = getPortPosition(link.dst, false);
@@ -607,7 +606,7 @@ public class RenderPipelineScreen extends Screen {
         }
     }
 
-    private void drawModuleNode(GuiGraphics context, ModuleNode moduleNode) {
+    private void drawModuleNode(GuiGraphicsExtractor context, ModuleNode moduleNode) {
         int x = (int) moduleNode.module.x;
         int y = (int) moduleNode.module.y + HEADER_HEIGHT;
         int w = moduleNode.width;
@@ -617,7 +616,7 @@ public class RenderPipelineScreen extends Screen {
 
         context.fill(x, y, x + w, y + moduleNode.headerH, 0xFF2B3240);
 
-        context.drawString(font, moduleNode.module.translateText(moduleNode.module.name), x + 6,
+        context.text(font, moduleNode.module.translateText(moduleNode.module.name), x + 6,
             y + 5, 0xFFEAEAEA);
 
         int btnSize = 12;
@@ -625,10 +624,10 @@ public class RenderPipelineScreen extends Screen {
         int btnY = y + (moduleNode.headerH - btnSize) / 2;
         int gearX = deleteX - btnSize - 2;
 
-        context.blit(RenderType::guiTextured, GEAR_TEX, gearX, btnY, 0, 0, btnSize,
+        context.blit(RenderPipelines.GUI_TEXTURED, GEAR_TEX, gearX, btnY, 0, 0, btnSize,
             btnSize, btnSize, btnSize);
 
-        context.drawString(font, "×", deleteX + 3, btnY + 2, 0xFFFF5A5A);
+        context.text(font, "×", deleteX + 3, btnY + 2, 0xFFFF5A5A);
 
         for (int i = 0; i < moduleNode.rows(); i++) {
             int ry = y + moduleNode.headerH + moduleNode.pad + i * moduleNode.rowH + 7;
@@ -642,7 +641,7 @@ public class RenderPipelineScreen extends Screen {
                 boolean isConnected = moduleConnections.stream().anyMatch(l -> l.dst == in);
                 drawPortDot(context, dotX, dotY, color, isConnected, false);
 
-                context.drawString(font, in.name, x + 18, ry + 2, 0xFFD0D0D0);
+                context.text(font, in.name, x + 18, ry + 2, 0xFFD0D0D0);
             }
 
             if (i < moduleNode.module.outputImageConfigs.size()) {
@@ -655,13 +654,13 @@ public class RenderPipelineScreen extends Screen {
                 drawPortDot(context, dotX, dotY, color, isConnected, out == localFinalOutput);
 
                 int nameWidth = font.width(out.name);
-                context.drawString(font, out.name, (dotX - 8) - nameWidth, ry + 2,
+                context.text(font, out.name, (dotX - 8) - nameWidth, ry + 2,
                     0xFFD0D0D0);
             }
         }
     }
 
-    private void drawPortDot(GuiGraphics ctx, int cx, int cy, int color, boolean filled,
+    private void drawPortDot(GuiGraphicsExtractor ctx, int cx, int cy, int color, boolean filled,
         boolean isFinal) {
         ctx.fill(cx - 4, cy - 4, cx + 5, cy + 5, isFinal ? 0xFF55FF55 : 0xFF000000);
         ctx.fill(cx - 3, cy - 3, cx + 4, cy + 4, 0xFF000000);
@@ -785,14 +784,22 @@ public class RenderPipelineScreen extends Screen {
     }
 
 
+    // Widgets are laid out in GLOBAL_SCALE space, so events are scaled before reaching them
+    private static MouseButtonEvent scaleEvent(MouseButtonEvent event) {
+        return new MouseButtonEvent(event.x() / GLOBAL_SCALE, event.y() / GLOBAL_SCALE,
+            event.buttonInfo());
+    }
+
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (isRebuilding()) {
             return true;
         }
 
-        mouseX /= GLOBAL_SCALE;
-        mouseY /= GLOBAL_SCALE;
+        MouseButtonEvent scaledEvent = scaleEvent(event);
+        double mouseX = scaledEvent.x();
+        double mouseY = scaledEvent.y();
+        int button = event.button();
 
         lastMouseX = mouseX;
         lastMouseY = mouseY;
@@ -801,7 +808,7 @@ public class RenderPipelineScreen extends Screen {
         draggedNode = null;
 
         if (mouseY < HEADER_HEIGHT) {
-            return super.mouseClicked(mouseX, mouseY, button);
+            return super.mouseClicked(scaledEvent, doubleClick);
         }
 
         if (mode == Mode.PRESET) {
@@ -822,7 +829,7 @@ public class RenderPipelineScreen extends Screen {
                     presetContentHeight());
                 return true;
             }
-            return super.mouseClicked(mouseX, mouseY, button);
+            return super.mouseClicked(scaledEvent, doubleClick);
         }
 
         for (ModuleNode node : nodes) {
@@ -832,7 +839,7 @@ public class RenderPipelineScreen extends Screen {
             }
 
             if (button == 0 && isGearClicked(node, mouseX, mouseY)) {
-                Minecraft.getInstance()
+                Minecraft.getInstance().gui
                     .setScreen(new ModuleAttributeScreen(this, node.module));
                 return true;
             }
@@ -894,7 +901,7 @@ public class RenderPipelineScreen extends Screen {
             return true;
         }
 
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(scaledEvent, doubleClick);
     }
 
     @Override
@@ -914,14 +921,15 @@ public class RenderPipelineScreen extends Screen {
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX,
-        double deltaY) {
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
         if (isRebuilding()) {
             return true;
         }
 
-        mouseX /= GLOBAL_SCALE;
-        mouseY /= GLOBAL_SCALE;
+        MouseButtonEvent scaledEvent = scaleEvent(event);
+        double mouseX = scaledEvent.x();
+        double mouseY = scaledEvent.y();
+        int button = event.button();
 
         if (mode == Mode.PRESET) {
             if (presetScrollbarDragging && button == 0) {
@@ -930,12 +938,11 @@ public class RenderPipelineScreen extends Screen {
                     presetContentHeight());
                 return true;
             }
-            return super.mouseDragged(mouseX, mouseY, button, deltaX / GLOBAL_SCALE,
+            return super.mouseDragged(scaledEvent, deltaX / GLOBAL_SCALE,
                 deltaY / GLOBAL_SCALE);
         }
 
-        if (super.mouseDragged(mouseX, mouseY, button, deltaX / GLOBAL_SCALE,
-            deltaY / GLOBAL_SCALE)) {
+        if (super.mouseDragged(scaledEvent, deltaX / GLOBAL_SCALE, deltaY / GLOBAL_SCALE)) {
             lastMouseX = mouseX;
             lastMouseY = mouseY;
             return true;
@@ -961,23 +968,22 @@ public class RenderPipelineScreen extends Screen {
 
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(MouseButtonEvent event) {
         if (isRebuilding()) {
             return true;
         }
 
-        mouseX /= GLOBAL_SCALE;
-        mouseY /= GLOBAL_SCALE;
+        MouseButtonEvent scaledEvent = scaleEvent(event);
 
-        if (button == 0 && presetScrollbarDragging) {
+        if (event.button() == 0 && presetScrollbarDragging) {
             presetScrollbarDragging = false;
             return true;
         }
 
-        lastMouseX = mouseX;
-        lastMouseY = mouseY;
+        lastMouseX = scaledEvent.x();
+        lastMouseY = scaledEvent.y();
 
-        boolean handled = super.mouseReleased(mouseX, mouseY, button);
+        boolean handled = super.mouseReleased(scaledEvent);
 
         draggedNode = null;
         isPanning = false;
@@ -986,19 +992,19 @@ public class RenderPipelineScreen extends Screen {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
         if (isRebuilding()) {
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override
-    public boolean charTyped(char chr, int modifiers) {
+    public boolean charTyped(CharacterEvent event) {
         if (isRebuilding()) {
             return true;
         }
-        return super.charTyped(chr, modifiers);
+        return super.charTyped(event);
     }
 
 
@@ -1036,7 +1042,7 @@ public class RenderPipelineScreen extends Screen {
             this.width = 120;
         }
 
-        public void render(GuiGraphics ctx, int mouseX, int mouseY) {
+        public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
             int currentY = y;
             ctx.fill(x - 1, y - 1, x + width + 1, y + (options.size() * itemHeight) + 1,
                 0xFFFFFFFF);
@@ -1046,7 +1052,7 @@ public class RenderPipelineScreen extends Screen {
                     && mouseY <= currentY + itemHeight;
                 ctx.fill(x, currentY, x + width, currentY + itemHeight,
                     hovered ? 0xFF444444 : 0xFF222222);
-                ctx.drawString(font, Component.translatable(entry.name), x + 5,
+                ctx.text(font, Component.translatable(entry.name), x + 5,
                     currentY + 5, 0xFFE0E0E0);
                 currentY += itemHeight;
             }
@@ -1240,7 +1246,7 @@ public class RenderPipelineScreen extends Screen {
             this.width = 140;
         }
 
-        public void render(GuiGraphics ctx, int mouseX, int mouseY) {
+        public void render(GuiGraphicsExtractor ctx, int mouseX, int mouseY) {
             int currentY = y;
             ctx.fill(x - 1, y - 1, x + width + 1, y + (options.size() * itemHeight) + 1,
                 0xFFFFFFFF);
@@ -1250,7 +1256,7 @@ public class RenderPipelineScreen extends Screen {
                     && mouseY <= currentY + itemHeight;
                 ctx.fill(x, currentY, x + width, currentY + itemHeight,
                     hovered ? 0xFF444444 : 0xFF222222);
-                ctx.drawString(font, Component.translatable(entry.name()), x + 5,
+                ctx.text(font, Component.translatable(entry.name()), x + 5,
                     currentY + 5, 0xFFE0E0E0);
                 currentY += itemHeight;
             }

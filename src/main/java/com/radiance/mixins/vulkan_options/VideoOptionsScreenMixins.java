@@ -38,6 +38,10 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
         "options.inactivityFpsLimit.afk.tooltip");
 
     @Unique
+    private static final Component EXCLUSIVE_FULLSCREEN_MODE_TOOLTIP = Component.translatable(
+        "options.fullscreen.exclusive.mode.tooltip");
+
+    @Unique
     private static final PotentialValuesBasedCallbacksNoValue<Boolean> BOOLEAN_NO_KEY = new PotentialValuesBasedCallbacksNoValue<>(
         ImmutableList.of(Boolean.TRUE, Boolean.FALSE), Codec.BOOL
     );
@@ -64,7 +68,7 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
                         genericValueLabel(optionText,
                             Component.translatable("options.framerate", value)),
                 new OptionInstance.IntRange(1, 26).xmap(
-                    value -> value * 10, value -> value / 10),
+                    value -> value * 10, value -> value / 10, true),
                 Codec.intRange(10, 260),
                 Options.maxFps,
                 value -> {
@@ -86,13 +90,16 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
         } else {
             Optional<VideoMode> optional = window.getPreferredFullscreenVideoMode();
             j =
-                optional.map(monitor::getVideoModeIndex)
+                optional.map(monitor::indexOfMode)
                     .orElse(-1);
         }
 
+        // 26.x only uses the fullscreen video mode in exclusive fullscreen, so this follows
+        // vanilla's "Exclusive Fullscreen Mode" option
         OptionInstance<Integer>
             fullScreenResolutionOption =
-            new OptionInstance<>("options.fullscreen.resolution", OptionInstance.noTooltip(),
+            new OptionInstance<>("options.fullscreen.exclusive.mode",
+                OptionInstance.cachedConstantTooltip(EXCLUSIVE_FULLSCREEN_MODE_TOOLTIP),
                 (optionText, value) -> {
                     if (monitor == null) {
                         return Component.translatable("options.fullscreen.unavailable");
@@ -100,20 +107,20 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
                         return genericValueLabel(optionText,
                             Component.translatable("options.fullscreen.current"));
                     } else {
-                        VideoMode videoMode = monitor.getMode(value);
+                        VideoMode videoMode = monitor.mode(value);
                         return genericValueLabel(optionText,
                             Component.translatable("options.fullscreen.entry",
                                 videoMode.getWidth(),
                                 videoMode.getHeight(),
-                                videoMode.getRefreshRate(),
+                                videoMode.refreshRateLabel(),
                                 videoMode.getRedBits() + videoMode.getGreenBits() +
                                     videoMode.getBlueBits()));
                     }
                 }, new OptionInstance.IntRange(-1,
-                monitor != null ? monitor.getModeCount() - 1 : -1), j, value -> {
+                monitor != null ? monitor.modeCount() - 1 : -1), j, value -> {
                 if (monitor != null) {
                     window.setPreferredFullscreenVideoMode(
-                        value == -1 ? Optional.empty() : Optional.of(monitor.getMode(value)));
+                        value == -1 ? Optional.empty() : Optional.of(monitor.mode(value)));
                 }
             });
 
@@ -126,7 +133,7 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
                     case AFK -> Tooltip.create(INACTIVITY_FPS_LIMIT_AFK_TOOLTIP);
                 };
             },
-            OptionInstance.forOptionEnum(),
+            (Component optionText, InactivityFpsLimit value) -> value.caption(),
             new OptionInstance.Enum<>(Arrays.asList(
                 InactivityFpsLimit.values()),
                 InactivityFpsLimit.CODEC),
@@ -222,7 +229,7 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
             BOOLEAN_NO_KEY,
             false,
             value -> {
-                Minecraft.getInstance()
+                Minecraft.getInstance().gui
                     .setScreen(new RenderPipelineScreen((VideoSettingsScreen) (Object) this));
             });
 
@@ -230,7 +237,7 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
         this.list.addEntry(
             new CategoryVideoOptionEntry(Component.translatable(Options.CATEGORY_GAMEPLAY), list));
         OptionInstance[] optionsGameplay = new OptionInstance[]{
-            options.graphicsMode(),
+            options.graphicsPreset(),
             options.renderDistance(),
             options.simulationDistance(),
             options.guiScale(),
@@ -258,6 +265,7 @@ public class VideoOptionsScreenMixins extends GameOptionsScreenMixins {
             inactivityFpsLimit,
             enableVsync,
             options.fullscreen(),
+            options.exclusiveFullscreen(),
         };
         this.list.addSmall(optionsWindow);
         this.list.addBig(fullScreenResolutionOption);

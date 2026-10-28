@@ -23,10 +23,10 @@ accessible	class	net/minecraft/client/gui/components/OptionsList$Entry
 accessible	method	net/minecraft/client/gui/components/OptionsList$Entry	<init>	(Ljava/util/List;Lnet/minecraft/client/gui/screens/Screen;)V
 accessible	method	net/minecraft/client/gui/components/AbstractSelectionList	addEntry	(Lnet/minecraft/client/gui/components/AbstractSelectionList$Entry;)I
 accessible	class	net/minecraft/client/renderer/CloudRenderer$RelativeCameraPos
-accessible	class	net/minecraft/client/OptionInstance$CycleableValueSet
 accessible	field	net/minecraft/client/OptionInstance	toString	Ljava/util/function/Function;
 accessible	field	net/minecraft/client/OptionInstance	caption	Lnet/minecraft/network/chat/Component;
 accessible	field	net/minecraft/client/gui/screens/Screen	renderables	Ljava/util/List;
+accessible	class	net/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack
 
 # 26.3 port: the 1.21.4 entries below no longer resolve. Each needs a 26.3
 # equivalent, or can be dropped, as the code that used it is ported (PORTING.md, M2).

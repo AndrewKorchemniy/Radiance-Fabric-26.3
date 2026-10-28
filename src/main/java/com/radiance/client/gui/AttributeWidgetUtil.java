@@ -1,6 +1,5 @@
 package com.radiance.client.gui;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.radiance.Radiance;
 import com.radiance.client.pipeline.Module;
 import com.radiance.client.pipeline.Pipeline;
@@ -10,16 +9,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipPositioner;
-import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.input.InputWithModifiers;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
@@ -79,7 +81,7 @@ final class AttributeWidgetUtil {
         return cfg.group.trim();
     }
 
-    static void drawGroupHeader(GuiGraphics context, Font textRenderer, Component title,
+    static void drawGroupHeader(GuiGraphicsExtractor context, Font textRenderer, Component title,
         int x, int y, int width, int height) {
         Component header = title.copy().withStyle(ChatFormatting.BOLD);
         int textWidth = Math.round(textRenderer.width(header) * GROUP_HEADER_SCALE);
@@ -99,12 +101,12 @@ final class AttributeWidgetUtil {
             context.fill(rightLineStart, lineY, rightLineEnd, lineY + 1, GROUP_HEADER_LINE_COLOR);
         }
 
-        context.pose().pushPose();
-        context.pose().scale(GROUP_HEADER_SCALE, GROUP_HEADER_SCALE, 1f);
-        context.drawString(textRenderer, header,
+        context.pose().pushMatrix();
+        context.pose().scale(GROUP_HEADER_SCALE, GROUP_HEADER_SCALE);
+        context.text(textRenderer, header,
             Math.round(textX / GROUP_HEADER_SCALE),
             Math.round(textY / GROUP_HEADER_SCALE), GROUP_HEADER_TEXT_COLOR);
-        context.pose().popPose();
+        context.pose().popMatrix();
     }
 
     static int clampScroll(int scrollY, int viewportHeight, int contentHeight) {
@@ -122,7 +124,7 @@ final class AttributeWidgetUtil {
         return viewportHeight > 0 && contentHeight > viewportHeight;
     }
 
-    static void drawVerticalScrollbar(GuiGraphics context, int screenWidth, int viewportTop,
+    static void drawVerticalScrollbar(GuiGraphicsExtractor context, int screenWidth, int viewportTop,
         int viewportHeight, int contentHeight, int scrollY, boolean dragging, int mouseX,
         int mouseY) {
         if (!needsVerticalScrollbar(viewportHeight, contentHeight)) {
@@ -221,18 +223,18 @@ final class AttributeWidgetUtil {
         return new TooltipFocus(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
     }
 
-    static void drawAttributeTooltip(GuiGraphics context, Font textRenderer, Module module,
+    static void drawAttributeTooltip(GuiGraphicsExtractor context, Font textRenderer, Module module,
         AttributeConfig cfg, TooltipFocus focus, int mouseX, int mouseY) {
         List<Component> lines = buildAttributeTooltip(module, cfg);
         if (!lines.isEmpty()) {
             List<FormattedCharSequence> orderedLines = wrapTooltipLines(textRenderer, lines,
                 tooltipMaxWidth(context));
-            context.renderTooltip(textRenderer, orderedLines, new AttributeTooltipPositioner(focus),
-                mouseX, mouseY);
+            context.setTooltipForNextFrame(textRenderer, orderedLines,
+                new AttributeTooltipPositioner(focus), mouseX, mouseY, false);
         }
     }
 
-    private static int tooltipMaxWidth(GuiGraphics context) {
+    private static int tooltipMaxWidth(GuiGraphicsExtractor context) {
         int screenWidth = Math.max(1, context.guiWidth());
         int availableWidth = Math.max(1, screenWidth - TOOLTIP_EDGE_MARGIN * 2);
         int ratioWidth = Math.max(1, Math.round(screenWidth * TOOLTIP_MAX_WIDTH_SCREEN_RATIO));
@@ -362,7 +364,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    static void drawBorder(GuiGraphics ctx, int x, int y, int w, int h, int color) {
+    static void drawBorder(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int color) {
         ctx.fill(x, y, x + w, y + 1, color);
         ctx.fill(x, y + h - 1, x + w, y + h, color);
         ctx.fill(x, y, x + 1, y + h, color);
@@ -621,7 +623,7 @@ final class AttributeWidgetUtil {
 
     private static AbstractWidget buildIntWidget(Module module, AttributeConfig cfg, Font textRenderer,
         int width) {
-        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
+        FilteredEditBox tf = new FilteredEditBox(textRenderer, width);
         tf.setMaxLength(64);
         tf.setValue(cfg.value == null ? "" : cfg.value);
         tf.setFilter(s -> s.isEmpty() || s.equals("-") || s.matches("-?\\d+"));
@@ -635,7 +637,7 @@ final class AttributeWidgetUtil {
 
     private static AbstractWidget buildFloatWidget(Module module, AttributeConfig cfg, Font textRenderer,
         int width) {
-        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
+        FilteredEditBox tf = new FilteredEditBox(textRenderer, width);
         tf.setMaxLength(64);
         tf.setValue(cfg.value == null ? "" : cfg.value);
         tf.setFilter(
@@ -690,7 +692,7 @@ final class AttributeWidgetUtil {
     }
 
     private static EditBox vecField(Font textRenderer, float v, int width) {
-        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
+        FilteredEditBox tf = new FilteredEditBox(textRenderer, width);
         tf.setMaxLength(32);
         tf.setValue(trimFloat(v));
         tf.setFilter(
@@ -861,7 +863,7 @@ final class AttributeWidgetUtil {
         void syncFromConfig();
     }
 
-    private static class ResetIconButton extends Button {
+    private static class ResetIconButton extends Button.Plain {
 
         private ResetIconButton(int x, int y, int width, int height, String tooltipKey,
             OnPress onPress) {
@@ -870,23 +872,19 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        protected void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
-            super.renderWidget(context, mouseX, mouseY, delta);
+        protected void extractContents(GuiGraphicsExtractor context, int mouseX, int mouseY,
+            float delta) {
+            super.extractContents(context, mouseX, mouseY, delta);
 
             int iconSize = Math.round(Math.min(getWidth(), getHeight()) * RESET_ICON_SIZE_RATIO);
             int iconX = getX() + (getWidth() - iconSize) / 2;
             int iconY = getY() + (getHeight() - iconSize) / 2;
             int color = active ? 0xFFFFFFFF : 0xFFA0A0A0;
 
-            RenderSystem.setShaderColor(
-                ((color >> 16) & 0xFF) / 255f,
-                ((color >> 8) & 0xFF) / 255f,
-                (color & 0xFF) / 255f,
-                ((color >> 24) & 0xFF) / 255f);
-            context.blit(RenderType::guiTextured, RESET_TEX, iconX, iconY, 0, 0,
+            // No shader color anymore, the tint goes in as the vertex color
+            context.blit(RenderPipelines.GUI_TEXTURED, RESET_TEX, iconX, iconY, 0, 0,
                 iconSize, iconSize, RESET_TEXTURE_SIZE, RESET_TEXTURE_SIZE, RESET_TEXTURE_SIZE,
-                RESET_TEXTURE_SIZE);
-            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                RESET_TEXTURE_SIZE, color);
         }
     }
 
@@ -909,7 +907,7 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        public void onPress() {
+        public void onPress(InputWithModifiers input) {
             boolean changed = resetAttributeToDefault(module, cfg);
             syncValueWidgetsFromConfig(valueWidgets, cfg, module);
             syncVisibility(visible || active);
@@ -925,7 +923,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    private static class EnumAttributeButton extends Button implements ConfigValueWidget {
+    private static class EnumAttributeButton extends Button.Plain implements ConfigValueWidget {
 
         private final Module module;
         private final AttributeConfig cfg;
@@ -945,7 +943,7 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        public void onPress() {
+        public void onPress(InputWithModifiers input) {
             int nextIndex = nextSelectableIndex();
             if (nextIndex < 0) {
                 return;
@@ -958,9 +956,10 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        protected void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        protected void extractContents(GuiGraphicsExtractor context, int mouseX, int mouseY,
+            float delta) {
             syncFromConfig();
-            super.renderWidget(context, mouseX, mouseY, delta);
+            super.extractContents(context, mouseX, mouseY, delta);
         }
 
         @Override
@@ -990,6 +989,62 @@ final class AttributeWidgetUtil {
                 }
             }
             return -1;
+        }
+    }
+
+    // EditBox lost setFilter in 26.x. This rejects user edits that would make the text fail
+    // the filter, before the responder sees them, like the old filter did.
+    private static class FilteredEditBox extends EditBox {
+
+        private Predicate<String> filter = s -> true;
+        private Consumer<String> responder;
+        private boolean rejected = false;
+
+        private FilteredEditBox(Font textRenderer, int width) {
+            super(textRenderer, 0, 0, width, 20, Component.empty());
+            super.setResponder(this::onChanged);
+        }
+
+        void setFilter(Predicate<String> filter) {
+            this.filter = filter;
+        }
+
+        @Override
+        public void setResponder(Consumer<String> responder) {
+            this.responder = responder;
+        }
+
+        private void onChanged(String text) {
+            if (!filter.test(text)) {
+                rejected = true;
+                return;
+            }
+            if (responder != null) {
+                responder.accept(text);
+            }
+        }
+
+        @Override
+        public void insertText(String input) {
+            guardedEdit(() -> super.insertText(input));
+        }
+
+        @Override
+        public void deleteCharsToPos(int pos) {
+            guardedEdit(() -> super.deleteCharsToPos(pos));
+        }
+
+        private void guardedEdit(Runnable edit) {
+            String before = getValue();
+            int cursor = getCursorPosition();
+            rejected = false;
+            edit.run();
+            if (rejected) {
+                rejected = false;
+                setValue(before);
+                setCursorPosition(cursor);
+                setHighlightPos(cursor);
+            }
         }
     }
 
