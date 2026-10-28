@@ -39,6 +39,7 @@ public class RendererProxy {
                 surface,
                 device.instance().getEnabledExtensions().toArray(String[]::new),
                 enabledDeviceExtensions);
+            graphicsQueueShared = true;
             Options.applyDefaultFrameGeneration();
         } finally {
             if (Profiler.ENABLED) {
@@ -56,6 +57,31 @@ public class RendererProxy {
     public static native boolean configureSwapchain(int width, int height, int presentMode);
 
     public static native boolean isSwapchainSuboptimal();
+
+    /**
+     * Vanilla and native share the graphics queue, and native may submit to it from worker threads,
+     * so vanilla's queue submits and waits take native's queue lock too (see {@code VulkanQueueMixins}).
+     * Before native is initialised these do nothing.
+     */
+    private static native void lockGraphicsQueue();
+
+    private static native void unlockGraphicsQueue();
+
+    /** Set once native is attached; vanilla submits before that need no lock (and may precede loading). */
+    private static volatile boolean graphicsQueueShared = false;
+
+    public static void runWithGraphicsQueue(Runnable action) {
+        if (!graphicsQueueShared) {
+            action.run();
+            return;
+        }
+        lockGraphicsQueue();
+        try {
+            action.run();
+        } finally {
+            unlockGraphicsQueue();
+        }
+    }
 
     /**
      * Acquires the next swapchain image and begins native's frame.

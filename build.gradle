@@ -210,8 +210,9 @@ jar {
     if (!profilerEnabled) {
         exclude "com/radiance/client/profiler/**"
     }
+    def licenceSuffix = project.base.archivesName.get()
     from("LICENCE") {
-        rename { "${it}_${project.archivesBaseName}" }
+        rename { "${it}_${licenceSuffix}" }
     }
 }
 

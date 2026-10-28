@@ -112,6 +112,9 @@ public final class RadianceVulkanFeatures {
         optional.add(INVOCATION_REORDER_EXT_SET);
         optional.add(INVOCATION_REORDER_NV_SET);
         optional.add(new FeatureSet("Radiance memory budget", Set.of("VK_EXT_memory_budget"), Set.of()));
+        // FSR frame generation's compatibility check requires this extension to be enabled.
+        optional.add(new FeatureSet("Radiance extended dynamic state 3",
+            Set.of("VK_EXT_extended_dynamic_state3"), Set.of()));
         optional.add(new FeatureSet("Radiance AMD coherent memory",
             Set.of("VK_AMD_device_coherent_memory"), Set.of()));
         OPTIONAL = Collections.unmodifiableList(optional);

@@ -24,6 +24,8 @@
     "vulkan_device.VulkanGpuSurfaceAccessor",
     "vulkan_device.VulkanGpuSurfaceMixins",
     "vulkan_device.VulkanInstanceMixins",
+    "vulkan_device.VulkanQueueMixins",
+    "vulkan_device.VulkanQueueSubmissionMixins",
     "vulkan_options.GameOptionsScreenMixins",
     "vulkan_options.VideoOptionsScreenMixins",
     "vulkan_render_integration.BannerBlockEntityRendererMixins",
