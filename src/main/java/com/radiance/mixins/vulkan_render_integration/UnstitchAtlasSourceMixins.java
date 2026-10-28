@@ -2,7 +2,7 @@ package com.radiance.mixins.vulkan_render_integration;
 
 import com.radiance.client.texture.AuxiliaryTextures;
 import net.minecraft.client.renderer.texture.atlas.SpriteSource.Output;
-import net.minecraft.client.renderer.texture.atlas.SpriteSource.SpriteSupplier;
+import net.minecraft.client.renderer.texture.atlas.SpriteSource.DiscardableLoader;
 import net.minecraft.client.renderer.texture.atlas.sources.Unstitcher;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -13,9 +13,9 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(Unstitcher.class)
 public class UnstitchAtlasSourceMixins {
 
-    @Redirect(method = "run(Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$Output;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$Output;add(Lnet/minecraft/resources/Identifier;Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$SpriteSupplier;)V"))
+    @Redirect(method = "run(Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$Output;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$Output;add(Lnet/minecraft/resources/Identifier;Lnet/minecraft/client/renderer/texture/atlas/SpriteSource$DiscardableLoader;)V"))
     public void cancelPBRLoad(Output instance, Identifier identifier,
-        SpriteSupplier spriteRegion, ResourceManager resourceManager) {
+        DiscardableLoader spriteRegion, ResourceManager resourceManager) {
         if (AuxiliaryTextures.shouldSkipAtlasSprite(resourceManager, identifier)) {
             return;
         }

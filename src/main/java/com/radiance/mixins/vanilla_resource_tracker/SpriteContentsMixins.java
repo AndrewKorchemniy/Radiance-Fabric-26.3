@@ -1,16 +1,12 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
-import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.ISpriteContentsExt;
 import net.minecraft.client.renderer.texture.SpriteContents;
 import com.mojang.blaze3d.platform.NativeImage;
-import com.radiance.client.texture.TextureTracker.TextureTarget;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
 
 @Mixin(SpriteContents.class)
 public class SpriteContentsMixins implements ISpriteContentsExt {
@@ -18,19 +14,6 @@ public class SpriteContentsMixins implements ISpriteContentsExt {
     @Shadow @Final private NativeImage originalImage;
     @Unique private volatile boolean radiance$hasAverageColor;
     @Unique private int radiance$averageColor;
-
-    @Unique
-    private TextureTarget target;
-
-    @Override
-    public TextureTarget radiance$getTarget() {
-        return target;
-    }
-
-    @Override
-    public void radiance$setTarget(TextureTarget target) {
-        this.target = target;
-    }
 
     @Override
     public int radiance$getAverageColor() {
@@ -57,16 +40,5 @@ public class SpriteContentsMixins implements ISpriteContentsExt {
             }
         }
         return radiance$averageColor;
-    }
-
-    @Redirect(method = "upload(IIII[Lcom/mojang/blaze3d/platform/NativeImage;)V",
-        at = @At(value = "INVOKE",
-            target = "Lcom/mojang/blaze3d/platform/NativeImage;upload(IIIIIIIZ)V"))
-    public void setImageTargetIDBeforeUpload(NativeImage image, int level,
-        int offsetX, int offsetY, int unpackSkipPixels, int unpackSkipRows,
-        int width, int height, boolean blur) {
-        ((INativeImageExt) (Object) image).radiance$setTarget(this.target);
-        image.upload(level, offsetX, offsetY, unpackSkipPixels, unpackSkipRows,
-            width, height, blur);
     }
 }

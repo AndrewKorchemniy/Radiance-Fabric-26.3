@@ -62,16 +62,6 @@ public class VulkanConstants {
             return name;
         }
 
-        public NativeImage.InternalGlFormat getNativeImageInternalFormat() {
-            return switch (this) {
-                case VK_FORMAT_R8_UNORM -> NativeImage.InternalGlFormat.RED;
-                case VK_FORMAT_R8G8_UNORM -> NativeImage.InternalGlFormat.RG;
-                case VK_FORMAT_R8G8B8_UNORM -> NativeImage.InternalGlFormat.RGB;
-                case VK_FORMAT_R8G8B8A8_UNORM -> NativeImage.InternalGlFormat.RGBA;
-                default -> throw new IllegalStateException("Unexpected value: " + this.value);
-            };
-        }
-
         public NativeImage.Format getNativeImageFormat() {
             return switch (this) {
                 case VK_FORMAT_R8G8B8_UNORM -> NativeImage.Format.RGB;

@@ -1,18 +1,33 @@
 package com.radiance.client.texture;
 
-import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.textures.GpuTexture;
+import com.mojang.renderpearl.backend.vulkan.VulkanConst;
+import com.mojang.renderpearl.backend.vulkan.VulkanGpuTexture;
 import com.radiance.client.constant.VulkanConstants;
+import com.radiance.client.proxy.vulkan.TextureProxy;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.Identifier;
 
 public class TextureTracker {
 
     private static final AtomicLong nextTextureGeneration = new AtomicLong();
 
-    public static Map<Identifier, Integer> textureID2GLID = new ConcurrentHashMap<>();
+    /**
+     * Native ids of the textures vanilla allocated, which native samples directly on the shared device.
+     * Keyed by identity: vanilla textures don't override equals, and a closed texture must not match a
+     * new one.
+     */
+    private static final Map<GpuTexture, TextureTarget> vanillaTextures =
+        Collections.synchronizedMap(new IdentityHashMap<>());
+
     public static Map<Integer, Texture> GLID2Texture = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2SpecularGLID = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2NormalGLID = new ConcurrentHashMap<>();
@@ -25,6 +40,74 @@ public class TextureTracker {
     }
 
     public record TextureBinding(TextureTarget base, TextureTarget auxiliary) {
+    }
+
+    /**
+     * Imports a texture vanilla just created. Only sampleable color textures are imported: native never
+     * reads vanilla's depth targets, and formats native has no mapping for are skipped.
+     */
+    public static void onVanillaTextureCreated(VulkanGpuTexture texture) {
+        GpuFormat format = texture.getFormat();
+        if ((texture.usage() & GpuTexture.USAGE_TEXTURE_BINDING) == 0 || !format.hasColorAspect()) {
+            return;
+        }
+        VulkanConstants.VkFormat vkFormat;
+        try {
+            vkFormat = VulkanConstants.VkFormat.fromValue(VulkanConst.toVk(format));
+        } catch (IllegalArgumentException unsupported) {
+            return;
+        }
+        int id = TextureProxy.generateTextureId();
+        TextureProxy.importVulkanImage(id, texture.vkImage(), vkFormat, texture.getWidth(0),
+            texture.getHeight(0), texture.getMipLevels(), texture.getDepthOrLayers());
+        vanillaTextures.put(texture, captureTarget(id));
+    }
+
+    /** Called when vanilla actually frees the image, two submissions after it was closed. */
+    public static void onVanillaTextureDestroyed(VulkanGpuTexture texture) {
+        TextureTarget target = vanillaTextures.remove(texture);
+        if (target != null) {
+            TextureProxy.releaseTexture(target.id());
+        }
+    }
+
+    private static final ThreadLocal<Boolean> uploadTrackingSuppressed =
+        ThreadLocal.withInitial(() -> false);
+
+    /** Runs {@code action} without following its uploads into auxiliary textures. */
+    public static void suppressUploadTracking(Runnable action) {
+        boolean previous = uploadTrackingSuppressed.get();
+        uploadTrackingSuppressed.set(true);
+        try {
+            action.run();
+        } finally {
+            uploadTrackingSuppressed.set(previous);
+        }
+    }
+
+    public static boolean isUploadTrackingSuppressed() {
+        return uploadTrackingSuppressed.get();
+    }
+
+    /** The native target of a vanilla texture, or null if it was not imported. */
+    public static TextureTarget targetOf(GpuTexture texture) {
+        return texture == null ? null : vanillaTextures.get(texture);
+    }
+
+    /** The native id of a vanilla texture, or -1 if it was not imported. */
+    public static int idOf(GpuTexture texture) {
+        TextureTarget target = targetOf(texture);
+        return target == null ? -1 : target.id();
+    }
+
+    /** The native id of a texture registered with vanilla's texture manager, or -1. */
+    public static int idOf(AbstractTexture texture) {
+        return texture == null ? -1 : idOf(texture.getTexture());
+    }
+
+    /** The native id of the texture vanilla registered under {@code location}, or -1. */
+    public static int idOf(Identifier location) {
+        return idOf(Minecraft.getInstance().getTextureManager().getTexture(location));
     }
 
     public static TextureTarget captureTarget(int id) {
@@ -120,36 +203,10 @@ public class TextureTracker {
             }
         }
 
-        public Texture(int width, int height, NativeImage.InternalGlFormat format, int maxLayer) {
-            this(width, height, getChannel(format), getFormat(format), maxLayer,
-                nextTextureGeneration.incrementAndGet());
-        }
-
         public Texture(int width, int height, int channel, VulkanConstants.VkFormat format,
             int maxLayer) {
             this(width, height, channel, format, maxLayer,
                 nextTextureGeneration.incrementAndGet());
-        }
-
-        private static int getChannel(NativeImage.InternalGlFormat internalFormat) {
-            return switch (internalFormat) {
-                case RGBA -> 4;
-                case RGB -> 3;
-                case RG -> 2;
-                case RED -> 1;
-                default -> throw new IllegalArgumentException(
-                    "Unknown internal format: " + internalFormat);
-            };
-        }
-
-        private static VulkanConstants.VkFormat getFormat(
-            NativeImage.InternalGlFormat internalFormat) {
-            return switch (internalFormat) {
-                case RGBA -> VulkanConstants.VkFormat.VK_FORMAT_R8G8B8A8_UNORM;
-                case RGB -> VulkanConstants.VkFormat.VK_FORMAT_R8G8B8_UNORM;
-                case RG -> VulkanConstants.VkFormat.VK_FORMAT_R8G8_UNORM;
-                case RED -> VulkanConstants.VkFormat.VK_FORMAT_R8_UNORM;
-            };
         }
     }
 }

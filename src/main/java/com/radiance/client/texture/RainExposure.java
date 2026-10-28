@@ -32,7 +32,7 @@ public final class RainExposure {
 
     public static void changed(LevelChunk chunk) {
         if (chunk.getLevel() != level) return;
-        int slot = (chunk.getPos().z & 31) * TILES + (chunk.getPos().x & 31);
+        int slot = (chunk.getPos().z() & 31) * TILES + (chunk.getPos().x() & 31);
         if (chunks[slot] == chunk) dirty.set(slot);
     }
 

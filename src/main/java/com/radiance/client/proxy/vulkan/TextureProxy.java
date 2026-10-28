@@ -172,6 +172,36 @@ public class TextureProxy {
         }
     }
 
+    /**
+     * Makes a {@code VkImage} that vanilla allocated on the shared device sampleable by native under
+     * {@code textureId}. Native creates its own view and never writes to, transitions or frees the
+     * image: vanilla keeps it in {@code VK_IMAGE_LAYOUT_GENERAL} and frees it after
+     * {@link #releaseTexture}.
+     */
+    private static native void importVulkanImageNative(int textureId, long vkImage, int format,
+        int width, int height, int mipLevels, int layers);
+
+    public synchronized static void importVulkanImage(int textureId, long vkImage,
+        VulkanConstants.VkFormat format, int width, int height, int mipLevels, int layers) {
+        if (Profiler.ENABLED) {
+            Profiler.enter("java.TextureProxy.importVulkanImage");
+        }
+        try {
+            clearEmissionUpdates(textureId);
+            filterStatesByTextureId.remove(textureId);
+            clampModesByTextureId.remove(textureId);
+            importVulkanImageNative(textureId, vkImage, format.getValue(), width, height,
+                mipLevels, layers);
+            TextureTracker.Texture texture = new TextureTracker.Texture(width, height,
+                formatToChannelCount(format), format, mipLevels - 1);
+            TextureTracker.registerTexture(new TextureTarget(textureId, texture.generation()), texture);
+        } finally {
+            if (Profiler.ENABLED) {
+                Profiler.exit();
+            }
+        }
+    }
+
     public static void prepareImage(int textureId, int mipLevels, int width, int height,
         VulkanConstants.VkFormat format) {
         prepareImage(textureId, mipLevels, width, height, format.getValue());
@@ -516,30 +546,6 @@ public class TextureProxy {
                     MemoryUtil.memFree(cellsBuffer);
                 }
             }
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
-
-    public synchronized static void prepareImage(NativeImage.InternalGlFormat internalFormat, int textureId,
-        int mipLevels, int width, int height) {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.TextureProxy.prepareImageInternalFormat");
-        }
-        try {
-            VulkanConstants.VkFormat format = switch (internalFormat) {
-                case RGBA:
-                    yield VulkanConstants.VkFormat.VK_FORMAT_R8G8B8A8_UNORM;
-                case RGB:
-                    yield VulkanConstants.VkFormat.VK_FORMAT_R8G8B8_UNORM;
-                case RG:
-                    yield VulkanConstants.VkFormat.VK_FORMAT_R8G8_UNORM;
-                case RED:
-                    yield VulkanConstants.VkFormat.VK_FORMAT_R8_UNORM;
-            };
-            prepareImage(textureId, mipLevels, width, height, format);
         } finally {
             if (Profiler.ENABLED) {
                 Profiler.exit();
