@@ -142,6 +142,8 @@ dependencies {
 
     // Distant Horizons 3.3.4-26.3
     compileOnly "maven.modrinth:distanthorizons:TGgEbP9A"
+    // Runtime-only copy so dev runs (and the mixin audit) load DH; not a published dependency.
+    localRuntime "maven.modrinth:distanthorizons:TGgEbP9A"
 
 
     // https://mvnrepository.com/artifact/org.yaml/snakeyaml
