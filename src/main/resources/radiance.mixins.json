@@ -70,7 +70,6 @@
     "mod_support.distant_horizons.BakedModelManagerMixins",
     "mod_support.distant_horizons.ClientApiMixins",
     "mod_support.distant_horizons.MinecraftRenderWrapperMixins",
-    "mod_support.distant_horizons.FabricClientProxyMixins",
     "mod_support.distant_horizons.LodRenderSectionMixins",
     "mod_support.distant_horizons.LodBufferContainerMixins",
     "mod_support.distant_horizons.FullDataToRenderDataTransformerMixins"

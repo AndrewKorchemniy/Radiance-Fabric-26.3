@@ -14,7 +14,7 @@ and has to be ported alongside it.
 | M3 MCVR native port | Not started. Native-side requirements collected below under "What M3 has to change" |
 | M4 Vanilla world rendering in game | Not started |
 | M5 Voxy integration | Not started |
-| M6 Distant Horizons integration | Not started |
+| M6 Distant Horizons integration | Mixins and vertex layout verified; in-game untested |
 | M7 Release workflow | Not started |
 
 ## What changed in Minecraft between 1.21.4 and 26.3
@@ -335,8 +335,26 @@ What the Java side now expects of native, collected during M2:
 
 ### M6 Distant Horizons integration
 
-- Compiles against DH 3.3.4-26.3 (previously 3.3.1). Update the `breaks` range
-  in `fabric.mod.json` and re-verify the DH mixin targets.
+Targets DH 3.3.4-26.3 (previously 3.3.1). Verified statically and by the mixin
+audit, which now runs with DH on the dev classpath (`localRuntime`):
+
+- `ModSupport` and the `breaks` range in `fabric.mod.json` are pinned to 3.3.4.
+- All DH mixin targets were checked with `javap` against the 3.3.4 jar and apply
+  in `runAuditMixins`: `ClientApi` (`renderLodLayer`, `renderFadeOpaque`,
+  `renderFadeTransparent`), `DependencySetup.setRenderingApiBindings`,
+  `FullDataToRenderDataTransformer.setRenderColumnView` (`getBlockStateWrapper`
+  redirect), `LodBufferContainer`, `LodRenderSection` (`makeLodRenderData` and
+  `tryMakeAndUploadBuffersAsync` redirects), `MinecraftRenderWrapper.getMcRenderingApi`.
+- `FabricClientProxyMixins` was removed. DH 3.3.4 no longer renders from
+  `FabricClientProxy` lambdas; it calls `ClientApi.renderLods`,
+  `renderDeferredLodsForShaders` and `renderFade*` from its own `MixinLevelRenderer` and
+  `MixinChunkSectionsToRender`, and `ClientApi` is already cancelled.
+- The 16-byte LOD vertex layout is unchanged (`LodQuadBuilder.putVertex`: xyz
+  shorts, light nibbles, micro offsets, RGBA, normal and material bytes, tile id
+  short), so `DistantHorizonsVertexBuffer` needed no conversion changes.
+
+Not verified: anything in game. Rendering, uploads and the water/kelp
+redirect need the native renderer (M3/M4) before they can be exercised.
 
 ### M7 Release workflow
 

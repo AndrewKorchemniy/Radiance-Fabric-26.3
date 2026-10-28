@@ -29,7 +29,7 @@ public class DistantHorizonsVertexBuffer implements IVertexBufferWrapper {
     public void uploadVertexBuffer(ByteBuffer source, int vertexCount) {
         if (vertices != null) { throw new IllegalStateException("Vista buffers are immutable"); }
         if (vertexCount <= 0 || vertexCount % 4 != 0 || source.remaining() != (long) vertexCount * 16) {
-            throw new IllegalArgumentException("Unexpected Distant Horizons 3.3.0 vertex layout");
+            throw new IllegalArgumentException("Unexpected Distant Horizons 3.3.4 vertex layout");
         }
         if (Profiler.ENABLED) Profiler.enter("java.DistantHorizonsVertexBuffer.convertVertices");
         try {
