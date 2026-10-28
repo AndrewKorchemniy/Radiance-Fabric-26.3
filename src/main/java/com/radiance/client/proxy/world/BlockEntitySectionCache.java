@@ -2,15 +2,15 @@ package com.radiance.client.proxy.world;
 
 import com.radiance.client.profiler.Profiler;
 import java.util.BitSet;
-import net.minecraft.client.render.BuiltChunkStorage;
-import net.minecraft.client.render.chunk.ChunkBuilder;
+import net.minecraft.client.renderer.ViewArea;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
 
 public final class BlockEntitySectionCache {
-    private static final ChunkBuilder.BuiltChunk[] EMPTY =
-        new ChunkBuilder.BuiltChunk[0];
+    private static final SectionRenderDispatcher.RenderSection[] EMPTY =
+        new SectionRenderDispatcher.RenderSection[0];
     private static final BitSet nonempty = new BitSet();
-    private static ChunkBuilder.BuiltChunk[] source;
-    private static ChunkBuilder.BuiltChunk[] snapshot;
+    private static SectionRenderDispatcher.RenderSection[] source;
+    private static SectionRenderDispatcher.RenderSection[] snapshot;
     private static boolean indexed;
 
     private BlockEntitySectionCache() {}
@@ -22,20 +22,20 @@ public final class BlockEntitySectionCache {
         indexed = false;
     }
 
-    public static synchronized void changed(ChunkBuilder.BuiltChunk section) {
+    public static synchronized void changed(SectionRenderDispatcher.RenderSection section) {
         int index = section.index;
         if (source == null || !indexed || index < 0 || index >= source.length
             || source[index] != section) return;
         boolean wasNonempty = nonempty.get(index);
-        boolean isNonempty = !section.getData().getBlockEntities().isEmpty();
+        boolean isNonempty = !section.getCompiled().getRenderableBlockEntities().isEmpty();
         nonempty.set(index, isNonempty);
         if (wasNonempty || isNonempty) snapshot = null;
     }
 
-    public static synchronized ChunkBuilder.BuiltChunk[] sections(BuiltChunkStorage area) {
+    public static synchronized SectionRenderDispatcher.RenderSection[] sections(ViewArea area) {
         boolean rebuilt = false;
-        if (source != area.chunks) {
-            source = area.chunks;
+        if (source != area.sections) {
+            source = area.sections;
             nonempty.clear();
             snapshot = null;
             indexed = true;
@@ -45,7 +45,7 @@ public final class BlockEntitySectionCache {
                     indexed = false;
                     break;
                 }
-                if (!section.getData().getBlockEntities().isEmpty()) nonempty.set(i);
+                if (!section.getCompiled().getRenderableBlockEntities().isEmpty()) nonempty.set(i);
             }
             rebuilt = true;
         }
@@ -59,7 +59,7 @@ public final class BlockEntitySectionCache {
         }
         if (snapshot == null) {
             int count = nonempty.cardinality();
-            snapshot = count == 0 ? EMPTY : new ChunkBuilder.BuiltChunk[count];
+            snapshot = count == 0 ? EMPTY : new SectionRenderDispatcher.RenderSection[count];
             int next = 0;
             for (int i = nonempty.nextSetBit(0); i >= 0; i = nonempty.nextSetBit(i + 1)) {
                 snapshot[next++] = source[i];

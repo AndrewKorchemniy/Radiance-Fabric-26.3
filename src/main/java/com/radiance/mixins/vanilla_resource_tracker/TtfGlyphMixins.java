@@ -1,25 +1,25 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
+import com.mojang.blaze3d.font.SheetGlyphInfo;
+import com.mojang.blaze3d.font.TrueTypeGlyphProvider;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.texture.TextureTracker;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.IRenderableGlyphExt;
 import java.util.function.Function;
-import net.minecraft.client.font.BakedGlyph;
-import net.minecraft.client.font.RenderableGlyph;
-import net.minecraft.client.font.TrueTypeFont;
-import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.gui.font.glyphs.BakedGlyph;
 import org.lwjgl.util.freetype.FT_Face;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(TrueTypeFont.TtfGlyph.class)
+@Mixin(TrueTypeGlyphProvider.Glyph.class)
 public class TtfGlyphMixins {
 
     @Shadow
     @Final
-    TrueTypeFont field_2336;
+    TrueTypeGlyphProvider field_2336;
 
     @Final
     @Shadow
@@ -35,11 +35,11 @@ public class TtfGlyphMixins {
 
     @Final
     @Shadow
-    float ascent;
+    float bearingY;
 
     @Final
     @Shadow
-    int glyphIndex;
+    int index;
 
     @Final
     @Shadow
@@ -50,16 +50,16 @@ public class TtfGlyphMixins {
 
 
     @Overwrite
-    public BakedGlyph bake(Function<RenderableGlyph, BakedGlyph> function) {
+    public BakedGlyph bake(Function<SheetGlyphInfo, BakedGlyph> function) {
         return function.apply(new IRenderableGlyphExt() {
 
             @Override
-            public int getWidth() {
+            public int getPixelWidth() {
                 return width;
             }
 
             @Override
-            public int getHeight() {
+            public int getPixelHeight() {
                 return height;
             }
 
@@ -69,13 +69,13 @@ public class TtfGlyphMixins {
             }
 
             @Override
-            public float getBearingX() {
+            public float getBearingLeft() {
                 return bearingX;
             }
 
             @Override
-            public float getAscent() {
-                return ascent;
+            public float getBearingTop() {
+                return bearingY;
             }
 
             @Override
@@ -87,8 +87,8 @@ public class TtfGlyphMixins {
             public void upload(int id, int x, int y) {
                 NativeImage nativeImage = new NativeImage(NativeImage.Format.LUMINANCE, width,
                     height, false);
-                FT_Face fT_Face = field_2336.getInfo();
-                if (nativeImage.makeGlyphBitmapSubpixel(fT_Face, glyphIndex)) {
+                FT_Face fT_Face = field_2336.validateFontOpen();
+                if (nativeImage.copyFromFont(fT_Face, index)) {
                     ((INativeImageExt) (Object) nativeImage).radiance$setTarget(
                         TextureTracker.captureTarget(id));
                     nativeImage.upload(0, x, y, 0, 0, width, height, true);
@@ -98,7 +98,7 @@ public class TtfGlyphMixins {
             }
 
             @Override
-            public boolean hasColor() {
+            public boolean isColored() {
                 return false;
             }
         });

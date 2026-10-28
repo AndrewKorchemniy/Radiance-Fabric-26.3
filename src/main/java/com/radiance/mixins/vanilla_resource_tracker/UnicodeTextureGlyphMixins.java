@@ -1,5 +1,7 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
+import com.mojang.blaze3d.font.SheetGlyphInfo;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.proxy.vulkan.TextureProxy;
@@ -10,10 +12,8 @@ import com.radiance.mixin_related.extensions.vanilla_resource_tracker.IRenderabl
 import java.nio.IntBuffer;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import net.minecraft.client.font.BakedGlyph;
-import net.minecraft.client.font.RenderableGlyph;
-import net.minecraft.client.font.UnihexFont;
-import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.gui.font.glyphs.BakedGlyph;
+import net.minecraft.client.gui.font.providers.UnihexProvider;
 import org.lwjgl.system.MemoryUtil;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,12 +21,12 @@ import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
-@Mixin(UnihexFont.UnicodeTextureGlyph.class)
+@Mixin(UnihexProvider.Glyph.class)
 public abstract class UnicodeTextureGlyphMixins {
 
     @Final
     @Shadow
-    public UnihexFont.BitmapGlyph contents;
+    public UnihexProvider.LineData contents;
 
     @Final
     @Shadow
@@ -109,17 +109,17 @@ public abstract class UnicodeTextureGlyphMixins {
 
 
     @Overwrite
-    public BakedGlyph bake(Function<RenderableGlyph, BakedGlyph> glyphFactory) {
+    public BakedGlyph bake(Function<SheetGlyphInfo, BakedGlyph> glyphFactory) {
         return glyphFactory.apply(new IRenderableGlyphExt() {
             public float getOversample() {
                 return 2.0F;
             }
 
-            public int getWidth() {
+            public int getPixelWidth() {
                 return width();
             }
 
-            public int getHeight() {
+            public int getPixelHeight() {
                 return 16;
             }
 
@@ -130,7 +130,7 @@ public abstract class UnicodeTextureGlyphMixins {
             @Override
             public void upload(int textureId, int x, int y) {
                 IntBuffer pixelBuffer = MemoryUtil.memAllocInt(width() * 16);
-                UnihexFont.addGlyphPixels(pixelBuffer, contents, left, right);
+                UnihexProvider.unpackBitsToBytes(pixelBuffer, contents, left, right);
                 pixelBuffer.rewind();
 
                 if (textureId < 0) {
@@ -157,7 +157,7 @@ public abstract class UnicodeTextureGlyphMixins {
                 }
             }
 
-            public boolean hasColor() {
+            public boolean isColored() {
                 return true;
             }
         });

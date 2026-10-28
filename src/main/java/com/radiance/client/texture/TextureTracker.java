@@ -1,18 +1,18 @@
 package com.radiance.client.texture;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.constant.VulkanConstants;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 public class TextureTracker {
 
     private static final AtomicLong nextTextureGeneration = new AtomicLong();
 
-    public static Map<Identifier, Integer> textureID2GLID = new ConcurrentHashMap<>();
+    public static Map<ResourceLocation, Integer> textureID2GLID = new ConcurrentHashMap<>();
     public static Map<Integer, Texture> GLID2Texture = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2SpecularGLID = new ConcurrentHashMap<>();
     public static Map<Integer, TextureBinding> GLID2NormalGLID = new ConcurrentHashMap<>();
@@ -120,7 +120,7 @@ public class TextureTracker {
             }
         }
 
-        public Texture(int width, int height, NativeImage.InternalFormat format, int maxLayer) {
+        public Texture(int width, int height, NativeImage.InternalGlFormat format, int maxLayer) {
             this(width, height, getChannel(format), getFormat(format), maxLayer,
                 nextTextureGeneration.incrementAndGet());
         }
@@ -131,7 +131,7 @@ public class TextureTracker {
                 nextTextureGeneration.incrementAndGet());
         }
 
-        private static int getChannel(NativeImage.InternalFormat internalFormat) {
+        private static int getChannel(NativeImage.InternalGlFormat internalFormat) {
             return switch (internalFormat) {
                 case RGBA -> 4;
                 case RGB -> 3;
@@ -143,7 +143,7 @@ public class TextureTracker {
         }
 
         private static VulkanConstants.VkFormat getFormat(
-            NativeImage.InternalFormat internalFormat) {
+            NativeImage.InternalGlFormat internalFormat) {
             return switch (internalFormat) {
                 case RGBA -> VulkanConstants.VkFormat.VK_FORMAT_R8G8B8A8_UNORM;
                 case RGB -> VulkanConstants.VkFormat.VK_FORMAT_R8G8B8_UNORM;

@@ -6,8 +6,6 @@ import com.radiance.client.option.Options;
 import com.radiance.client.pipeline.config.AttributeConfig;
 import com.radiance.client.pipeline.config.ImageConfig;
 import com.radiance.client.profiler.Profiler;
-import net.minecraft.client.MinecraftClient;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -32,7 +30,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-
+import net.minecraft.client.Minecraft;
 import org.lwjgl.system.MemoryUtil;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -516,12 +514,12 @@ public class Pipeline {
     }
 
     private static Path getMinecraftShaderPackDirectory() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.runDirectory == null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client == null || client.gameDirectory == null) {
             return null;
         }
 
-        Path shaderPackDirectory = client.runDirectory.toPath().resolve(MINECRAFT_SHADER_PACK_DIRECTORY);
+        Path shaderPackDirectory = client.gameDirectory.toPath().resolve(MINECRAFT_SHADER_PACK_DIRECTORY);
         try {
             Files.createDirectories(shaderPackDirectory);
         } catch (IOException e) {
@@ -1536,17 +1534,17 @@ public class Pipeline {
     public static native boolean isNativeRebuildActive();
 
     private static String getCurrentLanguageCode() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client != null) {
             var languageManager = client.getLanguageManager();
             if (languageManager != null) {
-                String language = languageManager.getLanguage();
+                String language = languageManager.getSelected();
                 if (language != null && !language.isBlank()) {
                     return language.toLowerCase(Locale.ROOT);
                 }
             }
-            if (client.options != null && client.options.language != null && !client.options.language.isBlank()) {
-                return client.options.language.toLowerCase(Locale.ROOT);
+            if (client.options != null && client.options.languageCode != null && !client.options.languageCode.isBlank()) {
+                return client.options.languageCode.toLowerCase(Locale.ROOT);
             }
         }
 

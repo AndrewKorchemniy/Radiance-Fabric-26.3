@@ -1,10 +1,10 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.texture.TextureTracker;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
-import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -16,15 +16,15 @@ public abstract class OverlayTextureMixins {
 
     @Final
     @Shadow
-    private NativeImageBackedTexture texture;
+    private DynamicTexture texture;
 
     @Redirect(method = "<init>()V",
         at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/texture/NativeImage;upload(IIIIIIIZ)V"))
+            target = "Lcom/mojang/blaze3d/platform/NativeImage;upload(IIIIIIIZ)V"))
     public void setImageTargetIDBeforeUpload(NativeImage nativeImage, int level,
         int offsetX, int offsetY, int unpackSkipPixels, int unpackSkipRows,
         int width, int height, boolean blur) {
-        int id = texture.getGlId();
+        int id = texture.getId();
         ((INativeImageExt) (Object) nativeImage).radiance$setTarget(TextureTracker.captureTarget(id));
         nativeImage.upload(level, offsetX, offsetY, unpackSkipPixels, unpackSkipRows,
             width, height, blur);

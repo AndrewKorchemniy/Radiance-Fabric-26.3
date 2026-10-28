@@ -1,8 +1,8 @@
 package com.radiance.client.vista;
 
-import net.minecraft.block.BlockState;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.Camera;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Matrix4f;
 
 public class Vista {
@@ -12,7 +12,7 @@ public class Vista {
         int[] sideMaterials(BlockState state);
         void reload();
         void render(Camera camera, Matrix4f view, Matrix4f projection, float tickDelta);
-        void setWorld(ClientWorld world);
+        void setWorld(ClientLevel world);
     }
 
     private static volatile Source source;
@@ -45,7 +45,7 @@ public class Vista {
         if (current != null) { current.render(camera, view, projection, tickDelta); }
     }
 
-    public static void setWorld(ClientWorld world) {
+    public static void setWorld(ClientLevel world) {
         Source current = source;
         if (current != null) { current.setWorld(world); }
     }

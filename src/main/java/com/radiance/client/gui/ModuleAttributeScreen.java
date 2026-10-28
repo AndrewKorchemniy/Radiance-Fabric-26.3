@@ -7,14 +7,13 @@ import com.radiance.client.pipeline.config.AttributeConfig;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.ClickableWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
 public class ModuleAttributeScreen extends Screen {
 
@@ -35,7 +34,7 @@ public class ModuleAttributeScreen extends Screen {
     private final Module module;
 
     private final List<Row> rows = new ArrayList<>();
-    private ButtonWidget resetAllButton;
+    private Button resetAllButton;
 
     private int scrollY = 0;
     private boolean scrollbarDragging = false;
@@ -53,12 +52,12 @@ public class ModuleAttributeScreen extends Screen {
     }
 
     private void rebuild() {
-        clearChildren();
-        addDrawableChild(
-            ButtonWidget.builder(Text.translatable("Back"), button -> close())
-                .dimensions(10, 6, 60, 20)
+        clearWidgets();
+        addRenderableWidget(
+            Button.builder(Component.translatable("Back"), button -> onClose())
+                .bounds(10, 6, 60, 20)
                 .build());
-        resetAllButton = addDrawableChild(
+        resetAllButton = addRenderableWidget(
             AttributeWidgetUtil.buildGlobalResetButton(75, 6, this::resetAllAttributes));
 
         rows.clear();
@@ -73,12 +72,12 @@ public class ModuleAttributeScreen extends Screen {
             if (Pipeline.isMainRenderShaderPackAttribute(module, cfg)) {
                 continue;
             }
-            List<ClickableWidget> ws = AttributeWidgetUtil.buildWidgets(module, cfg, textRenderer,
+            List<AbstractWidget> ws = AttributeWidgetUtil.buildWidgets(module, cfg, font,
                 WIDGET_WIDTH, VEC3_COMPONENT_WIDTH, this::rebuild);
             Row row = new Row(cfg, ws);
             setRowVisible(row, Pipeline.isAttributeVisible(module, cfg));
-            for (ClickableWidget w : ws) {
-                addDrawableChild(w);
+            for (AbstractWidget w : ws) {
+                addRenderableWidget(w);
             }
             rows.add(row);
         }
@@ -86,18 +85,18 @@ public class ModuleAttributeScreen extends Screen {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         Pipeline.getModuleAttributes(module);
         Pipeline.savePipeline();
-        MinecraftClient.getInstance().setScreen(parent);
+        Minecraft.getInstance().setScreen(parent);
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         syncResetAllButton();
         super.render(context, mouseX, mouseY, delta);
 
-        context.drawTextWithShadow(textRenderer, module.translateText(module.name), 10, HEADER_HEIGHT + 8, 0xFFEAEAEA);
+        context.drawString(font, module.translateText(module.name), 10, HEADER_HEIGHT + 8, 0xFFEAEAEA);
 
         int visibleRowCount = visibleRowCount();
 
@@ -105,8 +104,8 @@ public class ModuleAttributeScreen extends Screen {
             for (Row row : rows) {
                 setRowVisible(row, false);
             }
-            context.drawTextWithShadow(textRenderer,
-                Text.translatable(MODULE_ATTRIBUTE_SCREEN_NO_ATTRIBUTES), 10, 60, 0xFFB0B0B0);
+            context.drawString(font,
+                Component.translatable(MODULE_ATTRIBUTE_SCREEN_NO_ATTRIBUTES), 10, 60, 0xFFB0B0B0);
             return;
         }
 
@@ -128,12 +127,12 @@ public class ModuleAttributeScreen extends Screen {
             visibleIndex++;
 
             boolean withinViewport = y >= listTopY() && y <= viewportBottomY();
-            Text label = module.translateText(row.cfg.name);
+            Component label = module.translateText(row.cfg.name);
             AttributeWidgetUtil.TooltipFocus rowFocus = AttributeWidgetUtil.tooltipFocus(ROW_LEFT,
                 y, this.width - ROW_RIGHT, y + ROW_HEIGHT);
             if (withinViewport) {
-                context.drawTextWithShadow(textRenderer, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
-                if (mouseX >= ROW_LEFT && mouseX <= ROW_LEFT + textRenderer.getWidth(label)
+                context.drawString(font, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
+                if (mouseX >= ROW_LEFT && mouseX <= ROW_LEFT + font.width(label)
                     && mouseY >= y + 4 && mouseY <= y + 18) {
                     hoveredConfig = row.cfg;
                     hoveredFocus = rowFocus;
@@ -147,7 +146,7 @@ public class ModuleAttributeScreen extends Screen {
 
             AttributeWidgetUtil.syncWidgetVisibility(row.widgets, withinViewport);
 
-            for (ClickableWidget w : row.widgets) {
+            for (AbstractWidget w : row.widgets) {
                 if (withinViewport && !AttributeWidgetUtil.isResetButton(w)
                     && w.isMouseOver(mouseX, mouseY)) {
                     hoveredConfig = row.cfg;
@@ -161,20 +160,20 @@ public class ModuleAttributeScreen extends Screen {
                 boolean ok = true;
 
                 if (type.equals("vec3")) {
-                    if (w instanceof TextFieldWidget tf) {
-                        ok = AttributeWidgetUtil.isStrictFloat(tf.getText());
+                    if (w instanceof EditBox tf) {
+                        ok = AttributeWidgetUtil.isStrictFloat(tf.getValue());
                     }
                 } else if (type.equals("int")) {
-                    if (w instanceof TextFieldWidget tf) {
-                        ok = AttributeWidgetUtil.isStrictInt(tf.getText());
+                    if (w instanceof EditBox tf) {
+                        ok = AttributeWidgetUtil.isStrictInt(tf.getValue());
                     }
                 } else if (type.equals("float")) {
-                    if (w instanceof TextFieldWidget tf) {
-                        ok = AttributeWidgetUtil.isStrictFloat(tf.getText());
+                    if (w instanceof EditBox tf) {
+                        ok = AttributeWidgetUtil.isStrictFloat(tf.getValue());
                     }
                 }
 
-                if (w instanceof TextFieldWidget tf) {
+                if (w instanceof EditBox tf) {
                     int c = ok ? OK_BORDER : BAD_BORDER;
                     AttributeWidgetUtil.drawBorder(context, tf.getX(), tf.getY(), tf.getWidth(), tf.getHeight(), c);
                 }
@@ -185,7 +184,7 @@ public class ModuleAttributeScreen extends Screen {
             viewportHeight(), visibleContentHeight(), scrollY, scrollbarDragging, mouseX, mouseY);
 
         if (hoveredConfig != null) {
-            AttributeWidgetUtil.drawAttributeTooltip(context, textRenderer, module, hoveredConfig,
+            AttributeWidgetUtil.drawAttributeTooltip(context, font, module, hoveredConfig,
                 hoveredFocus, mouseX, mouseY);
         }
     }
@@ -295,9 +294,9 @@ public class ModuleAttributeScreen extends Screen {
     private static class Row {
 
         private final AttributeConfig cfg;
-        private final List<ClickableWidget> widgets;
+        private final List<AbstractWidget> widgets;
 
-        private Row(AttributeConfig cfg, List<ClickableWidget> widgets) {
+        private Row(AttributeConfig cfg, List<AbstractWidget> widgets) {
             this.cfg = cfg;
             this.widgets = widgets;
         }

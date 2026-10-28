@@ -7,23 +7,23 @@ import com.radiance.client.ui.UiBackendBuildConfig;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.BitSet;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.chunk.WorldChunk;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.Heightmap;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.levelgen.Heightmap;
 import org.lwjgl.system.MemoryUtil;
 
 public final class RainExposure {
     private static final int TILES = 32;
     private static final int SIZE = TILES * 16;
-    private static final WorldChunk[] chunks = new WorldChunk[TILES * TILES];
+    private static final LevelChunk[] chunks = new LevelChunk[TILES * TILES];
     private static final int[] tileX = new int[chunks.length];
     private static final int[] tileZ = new int[chunks.length];
     private static final BitSet dirty = new BitSet(chunks.length);
-    private static ClientWorld level;
+    private static ClientLevel level;
     private static int texture;
     private static int centerX = Integer.MIN_VALUE, centerZ = Integer.MIN_VALUE;
     private static int scan;
@@ -32,13 +32,13 @@ public final class RainExposure {
 
     private RainExposure() {}
 
-    public static void changed(WorldChunk chunk) {
-        if (chunk.getWorld() != level) return;
+    public static void changed(LevelChunk chunk) {
+        if (chunk.getLevel() != level) return;
         int slot = (chunk.getPos().z & 31) * TILES + (chunk.getPos().x & 31);
         if (chunks[slot] == chunk) dirty.set(slot);
     }
 
-    public static void setWorld(ClientWorld world) {
+    public static void setWorld(ClientLevel world) {
         if (level == world) return;
         if (texture != 0) {
             TextureProxy.releaseTexture(texture);
@@ -54,14 +54,14 @@ public final class RainExposure {
         lastTime = System.nanoTime();
     }
 
-    public static int update(ClientWorld world, double cameraX, double cameraZ) {
+    public static int update(ClientLevel world, double cameraX, double cameraZ) {
         setWorld(world);
-        if (world == null || !world.getDimension().hasSkyLight()) return 0;
+        if (world == null || !world.dimensionType().hasSkyLight()) return 0;
         long now = System.nanoTime();
         float dt = Math.min((now - lastTime) * 1e-9f, 0.1f);
         lastTime = now;
-        if (!MinecraftClient.getInstance().isPaused()) {
-            float rain = world.getRainGradient(1.0f);
+        if (!Minecraft.getInstance().isPaused()) {
+            float rain = world.getRainLevel(1.0f);
             wetness += (rain - wetness) * (1.0f - (float) Math.exp(-dt / (rain > wetness ? 2.0f : 25.0f)));
             if (wetness < 0.0001f) wetness = 0;
         }
@@ -97,24 +97,24 @@ public final class RainExposure {
             }
             for (int i = 0; i < 32; i++) {
                 int slot = scan++ & (chunks.length - 1);
-                WorldChunk chunk = world.getChunkManager().getChunk(tileX[slot], tileZ[slot], ChunkStatus.FULL, false);
+                LevelChunk chunk = world.getChunkSource().getChunk(tileX[slot], tileZ[slot], ChunkStatus.FULL, false);
                 if (chunks[slot] != chunk) { chunks[slot] = chunk; dirty.set(slot); }
             }
             int remaining = 16;
-            BlockPos.Mutable pos = new BlockPos.Mutable();
+            BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
             for (int slot = dirty.nextSetBit(0); slot >= 0 && remaining-- > 0; slot = dirty.nextSetBit(slot + 1)) {
                 dirty.clear(slot);
-                WorldChunk chunk = world.getChunkManager().getChunk(tileX[slot], tileZ[slot], ChunkStatus.FULL, false);
+                LevelChunk chunk = world.getChunkSource().getChunk(tileX[slot], tileZ[slot], ChunkStatus.FULL, false);
                 chunks[slot] = chunk;
                 MemoryUtil.memSet(MemoryUtil.memAddress(pixels), 0, pixels.capacity());
                 if (chunk != null) for (int z = 0; z < 16; z++) for (int x = 0; x < 16; x++) {
-                    int y = chunk.sampleHeightmap(Heightmap.Type.MOTION_BLOCKING, x, z);
+                    int y = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                     pos.set(tileX[slot] * 16 + x, y + 1, tileZ[slot] * 16 + z);
                     int height = Math.clamp(y + 32768, 0, 65535);
                     int offset = (z * 16 + x) * 4;
                     pixels.put(offset, (byte) height);
                     pixels.put(offset + 1, (byte) (height >>> 8));
-                    pixels.put(offset + 2, (byte) (world.getBiome(pos).value().getPrecipitation(pos, world.getSeaLevel()) == Biome.Precipitation.RAIN ? 255 : 0));
+                    pixels.put(offset + 2, (byte) (world.getBiome(pos).value().getPrecipitationAt(pos, world.getSeaLevel()) == Biome.Precipitation.RAIN ? 255 : 0));
                     pixels.put(offset + 3, (byte) 255);
                 }
                 upload(slot, pixels);

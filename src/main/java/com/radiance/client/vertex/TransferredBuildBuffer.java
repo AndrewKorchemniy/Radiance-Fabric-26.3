@@ -2,42 +2,42 @@ package com.radiance.client.vertex;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.SectionBufferBuilderPack;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.MeshData;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.ICloseableBufferExt;
-import net.minecraft.client.render.BuiltBuffer;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.chunk.BlockBufferAllocatorStorage;
-import net.minecraft.client.util.BufferAllocator;
 
 public final class TransferredBuildBuffer implements AutoCloseable {
 
-    private final BuiltBuffer builtBuffer;
-    private final BufferAllocator allocator;
+    private final MeshData builtBuffer;
+    private final ByteBufferBuilder allocator;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    private TransferredBuildBuffer(BuiltBuffer builtBuffer, BufferAllocator allocator) {
+    private TransferredBuildBuffer(MeshData builtBuffer, ByteBufferBuilder allocator) {
         this.builtBuffer = Objects.requireNonNull(builtBuffer, "builtBuffer");
         this.allocator = Objects.requireNonNull(allocator, "allocator");
     }
 
     public static TransferredBuildBuffer takeChunk(
-        BlockBufferAllocatorStorage storage,
-        RenderLayer layer,
-        BuiltBuffer builtBuffer) {
-        BufferAllocator allocator = ownerOf(builtBuffer);
-        BufferAllocator currentAllocator = storage.allocators.get(layer);
+        SectionBufferBuilderPack storage,
+        RenderType layer,
+        MeshData builtBuffer) {
+        ByteBufferBuilder allocator = ownerOf(builtBuffer);
+        ByteBufferBuilder currentAllocator = storage.buffers.get(layer);
         if (currentAllocator != allocator) {
             throw new IllegalStateException("Chunk build buffer owner does not match storage allocator");
         }
 
-        storage.allocators.put(layer, new BufferAllocator(layer.getExpectedBufferSize()));
+        storage.buffers.put(layer, new ByteBufferBuilder(layer.bufferSize()));
         return new TransferredBuildBuffer(builtBuffer, allocator);
     }
 
     public static TransferredBuildBuffer takeEntity(
         StorageVertexConsumerProvider provider,
-        RenderLayer layer,
-        BuiltBuffer builtBuffer) {
-        BufferAllocator allocator = ownerOf(builtBuffer);
+        RenderType layer,
+        MeshData builtBuffer) {
+        ByteBufferBuilder allocator = ownerOf(builtBuffer);
         if (!provider.detachTransferredAllocator(layer, allocator)) {
             throw new IllegalStateException("Entity build buffer owner does not match provider allocator");
         }
@@ -45,16 +45,16 @@ public final class TransferredBuildBuffer implements AutoCloseable {
         return new TransferredBuildBuffer(builtBuffer, allocator);
     }
 
-    public BuiltBuffer builtBuffer() {
+    public MeshData builtBuffer() {
         return builtBuffer;
     }
 
     public long vertexAddress() {
-        return org.lwjgl.system.MemoryUtil.memAddress(builtBuffer.getBuffer());
+        return org.lwjgl.system.MemoryUtil.memAddress(builtBuffer.vertexBuffer());
     }
 
     public long sortedIndexAddress() {
-        java.nio.ByteBuffer sortedBuffer = builtBuffer.getSortedBuffer();
+        java.nio.ByteBuffer sortedBuffer = builtBuffer.indexBuffer();
         return sortedBuffer == null ? 0L : org.lwjgl.system.MemoryUtil.memAddress(sortedBuffer);
     }
 
@@ -68,7 +68,7 @@ public final class TransferredBuildBuffer implements AutoCloseable {
         allocator.close();
     }
 
-    private static BufferAllocator ownerOf(BuiltBuffer builtBuffer) {
-        return ((ICloseableBufferExt) builtBuffer.buffer).radiance$getOwnerAllocator();
+    private static ByteBufferBuilder ownerOf(MeshData builtBuffer) {
+        return ((ICloseableBufferExt) builtBuffer.vertexBuffer).radiance$getOwnerAllocator();
     }
 }

@@ -2,6 +2,7 @@ package com.radiance.client.proxy.vulkan;
 
 import static org.lwjgl.system.MemoryUtil.memAddress;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.constant.VulkanConstants;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.Profiler;
@@ -14,7 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import net.minecraft.client.texture.NativeImage;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
@@ -523,7 +523,7 @@ public class TextureProxy {
         }
     }
 
-    public synchronized static void prepareImage(NativeImage.InternalFormat internalFormat, int textureId,
+    public synchronized static void prepareImage(NativeImage.InternalGlFormat internalFormat, int textureId,
         int mipLevels, int width, int height) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.TextureProxy.prepareImageInternalFormat");

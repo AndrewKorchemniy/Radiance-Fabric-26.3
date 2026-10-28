@@ -24,9 +24,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.phys.Vec3;
 import net.fabricmc.api.ClientModInitializer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.Vec3d;
 import org.slf4j.Logger;
 
 public class RadianceClient implements ClientModInitializer {
@@ -38,7 +38,7 @@ public class RadianceClient implements ClientModInitializer {
 
     public static Path radianceDir;
     private static long nextProfilerPlayerPositionLogNanos = 0L;
-    private static Vec3d lastProfilerPlayerPosition = null;
+    private static Vec3 lastProfilerPlayerPosition = null;
     private static boolean profilerAutoForwardPressed = false;
 
     @Override
@@ -48,8 +48,8 @@ public class RadianceClient implements ClientModInitializer {
             ClientTickEvents.END_CLIENT_TICK.register(RadianceClient::tickProfiler);
         }
 
-        MinecraftClient minecraftClient = MinecraftClient.getInstance();
-        Path minecraftBaseDirectory = minecraftClient.runDirectory.toPath();
+        Minecraft minecraftClient = Minecraft.getInstance();
+        Path minecraftBaseDirectory = minecraftClient.gameDirectory.toPath();
         radianceDir = minecraftBaseDirectory.resolve("radiance");
         try {
             Files.createDirectories(radianceDir);
@@ -109,26 +109,26 @@ public class RadianceClient implements ClientModInitializer {
         Pipeline.reloadAllModuleEntries();
     }
 
-    private static void tickProfiler(MinecraftClient client) {
+    private static void tickProfiler(Minecraft client) {
         if (Profiler.ENABLED) {
             updateProfilerAutoForward(client);
             logProfilerPlayerPosition(client);
         }
     }
 
-    private static void updateProfilerAutoForward(MinecraftClient client) {
+    private static void updateProfilerAutoForward(Minecraft client) {
         if (!PROFILER_AUTO_FORWARD) {
             return;
         }
 
-        boolean shouldPressForward = client.player != null && client.world != null
-            && client.currentScreen == null && client.isWindowFocused() && client.mouse.isCursorLocked();
-        client.options.forwardKey.setPressed(shouldPressForward);
+        boolean shouldPressForward = client.player != null && client.level != null
+            && client.screen == null && client.isWindowActive() && client.mouseHandler.isMouseGrabbed();
+        client.options.keyUp.setDown(shouldPressForward);
         profilerAutoForwardPressed = shouldPressForward;
     }
 
-    private static void logProfilerPlayerPosition(MinecraftClient client) {
-        if (client.player == null || client.world == null) {
+    private static void logProfilerPlayerPosition(Minecraft client) {
+        if (client.player == null || client.level == null) {
             lastProfilerPlayerPosition = null;
             nextProfilerPlayerPositionLogNanos = 0L;
             return;
@@ -139,7 +139,7 @@ public class RadianceClient implements ClientModInitializer {
             return;
         }
 
-        Vec3d position = client.player.getPos();
+        Vec3 position = client.player.position();
         double dx = lastProfilerPlayerPosition == null ? 0.0 : position.x - lastProfilerPlayerPosition.x;
         double dy = lastProfilerPlayerPosition == null ? 0.0 : position.y - lastProfilerPlayerPosition.y;
         double dz = lastProfilerPlayerPosition == null ? 0.0 : position.z - lastProfilerPlayerPosition.z;
@@ -150,9 +150,9 @@ public class RadianceClient implements ClientModInitializer {
             roundProfilerLogValue(position.x), roundProfilerLogValue(position.y),
             roundProfilerLogValue(position.z), roundProfilerLogValue(dx), roundProfilerLogValue(dy),
             roundProfilerLogValue(dz), roundProfilerLogValue(horizontalDelta),
-            client.options.forwardKey.isPressed(), profilerAutoForwardPressed,
-            client.isWindowFocused(), client.mouse.isCursorLocked(),
-            client.currentScreen == null ? "none" : client.currentScreen.getClass().getSimpleName());
+            client.options.keyUp.isDown(), profilerAutoForwardPressed,
+            client.isWindowActive(), client.mouseHandler.isMouseGrabbed(),
+            client.screen == null ? "none" : client.screen.getClass().getSimpleName());
 
         lastProfilerPlayerPosition = position;
         nextProfilerPlayerPositionLogNanos = now + PROFILER_PLAYER_POSITION_LOG_INTERVAL_NANOS;

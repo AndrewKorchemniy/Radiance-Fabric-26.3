@@ -12,7 +12,7 @@ import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_POST_BASE;
 import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_TEXTURE_ID;
 import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_TEXTURE_UV;
 
-import net.minecraft.client.render.VertexFormat;
+import com.mojang.blaze3d.vertex.VertexFormat;
 
 public class PBRVertexFormats {
 

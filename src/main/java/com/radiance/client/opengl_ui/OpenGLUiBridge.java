@@ -1,7 +1,7 @@
 package com.radiance.client.opengl_ui;
 
-import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.render.BufferRenderer;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.vertex.BufferUploader;
 import com.radiance.client.profiler.Profiler;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
@@ -184,12 +184,12 @@ public final class OpenGLUiBridge {
             }
         }
 
-        private void copyFramebufferToExternal(Framebuffer uiFramebuffer) {
+        private void copyFramebufferToExternal(RenderTarget uiFramebuffer) {
             if (Profiler.ENABLED) Profiler.enter("java.OpenGLUiBridge.copyFramebufferToExternal");
             try {
-                GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, uiFramebuffer.fbo);
+                GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, uiFramebuffer.frameBufferId);
                 GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.framebuffer);
-                GL30.glBlitFramebuffer(0, 0, uiFramebuffer.textureWidth, uiFramebuffer.textureHeight,
+                GL30.glBlitFramebuffer(0, 0, uiFramebuffer.width, uiFramebuffer.height,
                     0, this.height, this.width, 0, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
                 GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
             } finally {
@@ -239,7 +239,7 @@ public final class OpenGLUiBridge {
     private static final Map<SurfaceKey, SurfaceResources> surfaces = new HashMap<>();
     private static PreparedFrame preparedFrame = null;
     private static SurfaceResources currentSurface = null;
-    private static Framebuffer compositedFramebuffer = null;
+    private static RenderTarget compositedFramebuffer = null;
     private static long glContextWindow = 0L;
     private static boolean glContextCapabilitiesCreated = false;
     private static boolean capabilitiesChecked = false;
@@ -400,7 +400,7 @@ public final class OpenGLUiBridge {
         }
     }
 
-    public static void compositePreparedWorld(Framebuffer uiFramebuffer, boolean setViewport) {
+    public static void compositePreparedWorld(RenderTarget uiFramebuffer, boolean setViewport) {
         if (Profiler.ENABLED) Profiler.enter("java.OpenGLUiBridge.compositePreparedWorld");
         try {
             makeContextCurrent();
@@ -417,7 +417,7 @@ public final class OpenGLUiBridge {
             validateUiFramebuffer(uiFramebuffer);
             currentSurface = getOrImportSurface(preparedFrame);
             currentSurface.waitForVulkan();
-            uiFramebuffer.beginWrite(setViewport);
+            uiFramebuffer.bindWrite(setViewport);
             currentSurface.compositeWorldToBoundFramebuffer();
             compositedFramebuffer = uiFramebuffer;
         } finally {
@@ -425,7 +425,7 @@ public final class OpenGLUiBridge {
         }
     }
 
-    public static void submitCompositedFrame(Framebuffer uiFramebuffer) {
+    public static void submitCompositedFrame(RenderTarget uiFramebuffer) {
         if (Profiler.ENABLED) Profiler.enter("java.OpenGLUiBridge.submitCompositedFrame");
         try {
             makeContextCurrent();
@@ -443,7 +443,7 @@ public final class OpenGLUiBridge {
                 throw new IllegalStateException("OpenGL UI frame was not composited into the presented framebuffer");
             }
 
-            uiFramebuffer.endWrite();
+            uiFramebuffer.unbindWrite();
             currentSurface.copyFramebufferToExternal(uiFramebuffer);
             currentSurface.signalForVulkan();
             OpenGLUiProxy.submitFrame();
@@ -538,7 +538,7 @@ public final class OpenGLUiBridge {
             restoreEnabled(GL11.GL_CULL_FACE, cullEnabled);
             restoreEnabled(GL11.GL_SCISSOR_TEST, scissorEnabled);
             GL13.glActiveTexture(previousActiveTexture);
-            BufferRenderer.resetCurrentVertexBuffer();
+            BufferUploader.invalidate();
         }
     }
 
@@ -681,9 +681,9 @@ public final class OpenGLUiBridge {
         capabilitiesChecked = true;
     }
 
-    private static void validateUiFramebuffer(Framebuffer framebuffer) {
-        if (framebuffer.textureWidth <= 0 || framebuffer.textureHeight <= 0
-            || framebuffer.getColorAttachment() <= 0 || framebuffer.fbo <= 0) {
+    private static void validateUiFramebuffer(RenderTarget framebuffer) {
+        if (framebuffer.width <= 0 || framebuffer.height <= 0
+            || framebuffer.getColorTextureId() <= 0 || framebuffer.frameBufferId <= 0) {
             throw new IllegalStateException("OpenGL UI framebuffer is unavailable");
         }
     }

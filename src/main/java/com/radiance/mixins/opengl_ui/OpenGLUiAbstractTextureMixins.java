@@ -2,7 +2,7 @@ package com.radiance.mixins.opengl_ui;
 
 import com.radiance.client.constant.VulkanConstants;
 import com.radiance.client.proxy.vulkan.TextureProxy;
-import net.minecraft.client.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.AbstractTexture;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,21 +14,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public class OpenGLUiAbstractTextureMixins {
 
     @Shadow
-    protected int glId;
+    protected int id;
 
-    @Inject(method = "getGlId()I", at = @At(value = "HEAD"), cancellable = true)
+    @Inject(method = "getId()I", at = @At(value = "HEAD"), cancellable = true)
     public void getExistingGlId(CallbackInfoReturnable<Integer> cir) {
-        if (this.glId >= 0) {
-            cir.setReturnValue(this.glId);
+        if (this.id >= 0) {
+            cir.setReturnValue(this.id);
         }
     }
 
     @Inject(method = "setFilter(ZZ)V", at = @At(value = "HEAD"))
     public void syncNativeFilter(boolean bilinear, boolean mipmap, CallbackInfo ci) {
-        if (glId < 0) {
+        if (id < 0) {
             return;
         }
-        TextureProxy.setFilter(glId,
+        TextureProxy.setFilter(id,
             (bilinear ? VulkanConstants.VkFilter.VK_FILTER_LINEAR
                 : VulkanConstants.VkFilter.VK_FILTER_NEAREST).getValue(),
             mipmap ? (bilinear
@@ -39,19 +39,19 @@ public class OpenGLUiAbstractTextureMixins {
 
     @Inject(method = "setClamp(Z)V", at = @At(value = "HEAD"))
     public void syncNativeClamp(boolean clamp, CallbackInfo ci) {
-        if (glId < 0) {
+        if (id < 0) {
             return;
         }
-        TextureProxy.setClamp(glId,
+        TextureProxy.setClamp(id,
             clamp
                 ? VulkanConstants.VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE.getValue()
                 : VulkanConstants.VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_REPEAT.getValue());
     }
 
-    @Inject(method = "clearGlId()V", at = @At(value = "HEAD"))
+    @Inject(method = "releaseId()V", at = @At(value = "HEAD"))
     public void releaseNativeTexture(CallbackInfo ci) {
-        if (glId >= 0) {
-            TextureProxy.releaseTexture(glId);
+        if (id >= 0) {
+            TextureProxy.releaseTexture(id);
         }
     }
 }

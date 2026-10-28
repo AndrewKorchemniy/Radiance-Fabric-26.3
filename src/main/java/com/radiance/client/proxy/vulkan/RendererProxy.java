@@ -1,5 +1,7 @@
 package com.radiance.client.proxy.vulkan;
 
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.option.Options;
@@ -7,10 +9,7 @@ import com.radiance.client.profiler.MemoryMetricsCollector;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.ui.UiBackendRendererHooks;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.INativeImageExt;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.util.Window;
+import net.minecraft.client.Minecraft;
 
 public class RendererProxy {
 
@@ -39,7 +38,7 @@ public class RendererProxy {
             Profiler.enter("java.RendererProxy.initRenderer");
         }
         try {
-            RendererProxy.initRenderer(glfwLibCandidates(), window.getHandle());
+            RendererProxy.initRenderer(glfwLibCandidates(), window.getWindow());
             UiBackendRendererHooks.afterRendererInitialized();
             Options.applyDefaultFrameGeneration();
             RenderSystem.apiDescription = "Vulkan 1.4";
@@ -55,7 +54,7 @@ public class RendererProxy {
             throw new IllegalStateException("OpenGL presentation target is already initialized");
         }
         openGLPresentationTarget = prepareOpenGLPresentationTargetNative(
-            glfwLibCandidates(), window.getHandle());
+            glfwLibCandidates(), window.getWindow());
         if (openGLPresentationTarget == 0L) {
             throw new IllegalStateException("Failed to create the OpenGL UI presentation target");
         }
@@ -130,15 +129,15 @@ public class RendererProxy {
             Profiler.enter("java.RendererProxy.takeScreenshotWithoutUI");
         }
         try {
-            MinecraftClient minecraftClient = MinecraftClient.getInstance();
+            Minecraft minecraftClient = Minecraft.getInstance();
             int
                 width =
                 minecraftClient.getWindow()
-                    .getWidth();
+                    .getScreenWidth();
             int
                 height =
                 minecraftClient.getWindow()
-                    .getHeight();
+                    .getScreenHeight();
             NativeImage nativeImage = new NativeImage(width, height, false);
             ((INativeImageExt) (Object) nativeImage).radiance$loadFromTextureImageWithoutUI(0, true);
             return nativeImage;

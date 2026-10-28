@@ -9,14 +9,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.ClickableWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
 public class ShaderPackSettingsScreen extends Screen {
 
@@ -38,13 +37,13 @@ public class ShaderPackSettingsScreen extends Screen {
     private final Screen parent;
     private final List<Group> groups = new ArrayList<>();
     private Module module;
-    private ButtonWidget resetAllButton;
+    private Button resetAllButton;
     private int scrollY = 0;
     private boolean scrollbarDragging = false;
     private int scrollbarDragOffsetY = 0;
 
     public ShaderPackSettingsScreen(Screen parent) {
-        super(Text.translatable(TITLE));
+        super(Component.translatable(TITLE));
         this.parent = parent;
     }
 
@@ -54,12 +53,12 @@ public class ShaderPackSettingsScreen extends Screen {
     }
 
     private void rebuild(boolean reloadAttributes) {
-        clearChildren();
-        addDrawableChild(
-            ButtonWidget.builder(Text.translatable("Back"), button -> close())
-                .dimensions(10, 6, 60, 20)
+        clearWidgets();
+        addRenderableWidget(
+            Button.builder(Component.translatable("Back"), button -> onClose())
+                .bounds(10, 6, 60, 20)
                 .build());
-        resetAllButton = addDrawableChild(
+        resetAllButton = addRenderableWidget(
             AttributeWidgetUtil.buildGlobalResetButton(75, 6, this::resetAllAttributes));
 
         groups.clear();
@@ -74,10 +73,10 @@ public class ShaderPackSettingsScreen extends Screen {
 
         Map<String, Group> groupedRows = new LinkedHashMap<>();
         for (AttributeConfig cfg : list) {
-            List<ClickableWidget> ws = AttributeWidgetUtil.buildWidgets(module, cfg, textRenderer,
+            List<AbstractWidget> ws = AttributeWidgetUtil.buildWidgets(module, cfg, font,
                 WIDGET_WIDTH, VEC3_COMPONENT_WIDTH, () -> rebuild(false));
-            for (ClickableWidget w : ws) {
-                addDrawableChild(w);
+            for (AbstractWidget w : ws) {
+                addRenderableWidget(w);
             }
             String groupKey = AttributeWidgetUtil.groupKey(cfg);
             Group group = groupedRows.computeIfAbsent(groupKey,
@@ -102,24 +101,24 @@ public class ShaderPackSettingsScreen extends Screen {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         if (module != null) {
             Pipeline.getModuleAttributes(module);
             Pipeline.savePipeline();
         }
-        MinecraftClient.getInstance().setScreen(parent);
+        Minecraft.getInstance().setScreen(parent);
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         syncResetAllButton();
         super.render(context, mouseX, mouseY, delta);
 
-        context.drawTextWithShadow(textRenderer, Text.translatable(TITLE), 10, HEADER_HEIGHT + 8,
+        context.drawString(font, Component.translatable(TITLE), 10, HEADER_HEIGHT + 8,
             0xFFEAEAEA);
 
         if (groups.isEmpty()) {
-            context.drawTextWithShadow(textRenderer, Text.translatable(NO_ATTRIBUTES), 10, 60,
+            context.drawString(font, Component.translatable(NO_ATTRIBUTES), 10, 60,
                 0xFFB0B0B0);
             return;
         }
@@ -142,7 +141,7 @@ public class ShaderPackSettingsScreen extends Screen {
             boolean groupHeaderVisible = y + GROUP_HEADER_HEIGHT >= listTopY()
                 && y <= viewportBottomY();
             if (groupHeaderVisible) {
-                AttributeWidgetUtil.drawGroupHeader(context, textRenderer,
+                AttributeWidgetUtil.drawGroupHeader(context, font,
                     module.translateText(group.key()), ROW_LEFT, y,
                     this.width - ROW_LEFT - ROW_RIGHT, GROUP_HEADER_HEIGHT);
             }
@@ -156,12 +155,12 @@ public class ShaderPackSettingsScreen extends Screen {
                 }
 
                 boolean visible = y >= listTopY() && y <= viewportBottomY();
-                Text label = module.translateText(row.cfg.name);
+                Component label = module.translateText(row.cfg.name);
                 AttributeWidgetUtil.TooltipFocus rowFocus = AttributeWidgetUtil.tooltipFocus(
                     ROW_LEFT, y, this.width - ROW_RIGHT, y + ROW_HEIGHT);
                 if (visible) {
-                    context.drawTextWithShadow(textRenderer, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
-                    if (mouseX >= ROW_LEFT && mouseX <= ROW_LEFT + textRenderer.getWidth(label)
+                    context.drawString(font, label, ROW_LEFT, y + 6, 0xFFD0D0D0);
+                    if (mouseX >= ROW_LEFT && mouseX <= ROW_LEFT + font.width(label)
                         && mouseY >= y + 4 && mouseY <= y + 18) {
                         hoveredConfig = row.cfg;
                         hoveredFocus = rowFocus;
@@ -174,7 +173,7 @@ public class ShaderPackSettingsScreen extends Screen {
 
                 AttributeWidgetUtil.syncWidgetVisibility(row.widgets, visible);
 
-                for (ClickableWidget w : row.widgets) {
+                for (AbstractWidget w : row.widgets) {
                     if (visible && !AttributeWidgetUtil.isResetButton(w)
                         && w.isMouseOver(mouseX, mouseY)) {
                         hoveredConfig = row.cfg;
@@ -187,20 +186,20 @@ public class ShaderPackSettingsScreen extends Screen {
 
                     boolean ok = true;
                     if (type.equals("vec3")) {
-                        if (w instanceof TextFieldWidget tf) {
-                            ok = AttributeWidgetUtil.isStrictFloat(tf.getText());
+                        if (w instanceof EditBox tf) {
+                            ok = AttributeWidgetUtil.isStrictFloat(tf.getValue());
                         }
                     } else if (type.equals("int")) {
-                        if (w instanceof TextFieldWidget tf) {
-                            ok = AttributeWidgetUtil.isStrictInt(tf.getText());
+                        if (w instanceof EditBox tf) {
+                            ok = AttributeWidgetUtil.isStrictInt(tf.getValue());
                         }
                     } else if (type.equals("float")) {
-                        if (w instanceof TextFieldWidget tf) {
-                            ok = AttributeWidgetUtil.isStrictFloat(tf.getText());
+                        if (w instanceof EditBox tf) {
+                            ok = AttributeWidgetUtil.isStrictFloat(tf.getValue());
                         }
                     }
 
-                    if (w instanceof TextFieldWidget tf) {
+                    if (w instanceof EditBox tf) {
                         int c = ok ? OK_BORDER : BAD_BORDER;
                         AttributeWidgetUtil.drawBorder(context, tf.getX(), tf.getY(), tf.getWidth(),
                             tf.getHeight(), c);
@@ -212,7 +211,7 @@ public class ShaderPackSettingsScreen extends Screen {
         }
 
         if (!hasVisibleRows) {
-            context.drawTextWithShadow(textRenderer, Text.translatable(NO_ATTRIBUTES), 10, 60,
+            context.drawString(font, Component.translatable(NO_ATTRIBUTES), 10, 60,
                 0xFFB0B0B0);
             return;
         }
@@ -221,7 +220,7 @@ public class ShaderPackSettingsScreen extends Screen {
             viewportHeight(), visibleContentHeight(), scrollY, scrollbarDragging, mouseX, mouseY);
 
         if (hoveredConfig != null) {
-            AttributeWidgetUtil.drawAttributeTooltip(context, textRenderer, module, hoveredConfig,
+            AttributeWidgetUtil.drawAttributeTooltip(context, font, module, hoveredConfig,
                 hoveredFocus, mouseX, mouseY);
         }
     }
@@ -352,6 +351,6 @@ public class ShaderPackSettingsScreen extends Screen {
     private record Group(String key, List<Row> rows) {
     }
 
-    private record Row(AttributeConfig cfg, List<ClickableWidget> widgets) {
+    private record Row(AttributeConfig cfg, List<AbstractWidget> widgets) {
     }
 }

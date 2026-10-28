@@ -10,27 +10,26 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.gui.tooltip.TooltipPositioner;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.ClickableWidget;
-import net.minecraft.client.gui.widget.SliderWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipPositioner;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.util.Mth;
 import org.joml.Vector2i;
 import org.joml.Vector2ic;
 
 final class AttributeWidgetUtil {
 
-    private static final Identifier RESET_TEX = Identifier.of(Radiance.MOD_ID,
+    private static final ResourceLocation RESET_TEX = ResourceLocation.fromNamespaceAndPath(Radiance.MOD_ID,
         "textures/gui/reset.png");
     static final String DEFAULT_GROUP = "shader_pack_settings_screen.group.general";
 
@@ -68,7 +67,7 @@ final class AttributeWidgetUtil {
     private AttributeWidgetUtil() {
     }
 
-    static ButtonWidget buildGlobalResetButton(int x, int y, Runnable onPress) {
+    static Button buildGlobalResetButton(int x, int y, Runnable onPress) {
         return new ResetIconButton(x, y, GLOBAL_RESET_BUTTON_WIDTH, 20, RESET_ALL,
             button -> onPress.run());
     }
@@ -80,11 +79,11 @@ final class AttributeWidgetUtil {
         return cfg.group.trim();
     }
 
-    static void drawGroupHeader(DrawContext context, TextRenderer textRenderer, Text title,
+    static void drawGroupHeader(GuiGraphics context, Font textRenderer, Component title,
         int x, int y, int width, int height) {
-        Text header = title.copy().formatted(Formatting.BOLD);
-        int textWidth = Math.round(textRenderer.getWidth(header) * GROUP_HEADER_SCALE);
-        int textHeight = Math.round(textRenderer.fontHeight * GROUP_HEADER_SCALE);
+        Component header = title.copy().withStyle(ChatFormatting.BOLD);
+        int textWidth = Math.round(textRenderer.width(header) * GROUP_HEADER_SCALE);
+        int textHeight = Math.round(textRenderer.lineHeight * GROUP_HEADER_SCALE);
         int textX = x + (width - textWidth) / 2;
         int textY = y + (height - textHeight) / 2;
         int lineY = y + height / 2;
@@ -100,12 +99,12 @@ final class AttributeWidgetUtil {
             context.fill(rightLineStart, lineY, rightLineEnd, lineY + 1, GROUP_HEADER_LINE_COLOR);
         }
 
-        context.getMatrices().push();
-        context.getMatrices().scale(GROUP_HEADER_SCALE, GROUP_HEADER_SCALE, 1f);
-        context.drawTextWithShadow(textRenderer, header,
+        context.pose().pushPose();
+        context.pose().scale(GROUP_HEADER_SCALE, GROUP_HEADER_SCALE, 1f);
+        context.drawString(textRenderer, header,
             Math.round(textX / GROUP_HEADER_SCALE),
             Math.round(textY / GROUP_HEADER_SCALE), GROUP_HEADER_TEXT_COLOR);
-        context.getMatrices().pop();
+        context.pose().popPose();
     }
 
     static int clampScroll(int scrollY, int viewportHeight, int contentHeight) {
@@ -123,7 +122,7 @@ final class AttributeWidgetUtil {
         return viewportHeight > 0 && contentHeight > viewportHeight;
     }
 
-    static void drawVerticalScrollbar(DrawContext context, int screenWidth, int viewportTop,
+    static void drawVerticalScrollbar(GuiGraphics context, int screenWidth, int viewportTop,
         int viewportHeight, int contentHeight, int scrollY, boolean dragging, int mouseX,
         int mouseY) {
         if (!needsVerticalScrollbar(viewportHeight, contentHeight)) {
@@ -178,7 +177,7 @@ final class AttributeWidgetUtil {
         }
 
         int thumbY = (int) Math.round(mouseY) - dragOffsetY;
-        float progress = MathHelper.clamp((thumbY - viewportTop) / (float) travel, 0f, 1f);
+        float progress = Mth.clamp((thumbY - viewportTop) / (float) travel, 0f, 1f);
         return -Math.round(progress * (contentHeight - viewportHeight));
     }
 
@@ -188,7 +187,7 @@ final class AttributeWidgetUtil {
 
     private static int verticalScrollbarThumbHeight(int viewportHeight, int contentHeight) {
         int thumbHeight = Math.round(viewportHeight * (viewportHeight / (float) contentHeight));
-        return MathHelper.clamp(thumbHeight, SCROLLBAR_MIN_THUMB_HEIGHT, viewportHeight);
+        return Mth.clamp(thumbHeight, SCROLLBAR_MIN_THUMB_HEIGHT, viewportHeight);
     }
 
     private static int verticalScrollbarThumbY(int viewportTop, int viewportHeight,
@@ -200,7 +199,7 @@ final class AttributeWidgetUtil {
         }
 
         int maxScroll = contentHeight - viewportHeight;
-        float progress = maxScroll <= 0 ? 0f : MathHelper.clamp(-scrollY / (float) maxScroll,
+        float progress = maxScroll <= 0 ? 0f : Mth.clamp(-scrollY / (float) maxScroll,
             0f, 1f);
         return viewportTop + Math.round(progress * travel);
     }
@@ -222,19 +221,19 @@ final class AttributeWidgetUtil {
         return new TooltipFocus(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
     }
 
-    static void drawAttributeTooltip(DrawContext context, TextRenderer textRenderer, Module module,
+    static void drawAttributeTooltip(GuiGraphics context, Font textRenderer, Module module,
         AttributeConfig cfg, TooltipFocus focus, int mouseX, int mouseY) {
-        List<Text> lines = buildAttributeTooltip(module, cfg);
+        List<Component> lines = buildAttributeTooltip(module, cfg);
         if (!lines.isEmpty()) {
-            List<OrderedText> orderedLines = wrapTooltipLines(textRenderer, lines,
+            List<FormattedCharSequence> orderedLines = wrapTooltipLines(textRenderer, lines,
                 tooltipMaxWidth(context));
-            context.drawTooltip(textRenderer, orderedLines, new AttributeTooltipPositioner(focus),
+            context.renderTooltip(textRenderer, orderedLines, new AttributeTooltipPositioner(focus),
                 mouseX, mouseY);
         }
     }
 
-    private static int tooltipMaxWidth(DrawContext context) {
-        int screenWidth = Math.max(1, context.getScaledWindowWidth());
+    private static int tooltipMaxWidth(GuiGraphics context) {
+        int screenWidth = Math.max(1, context.guiWidth());
         int availableWidth = Math.max(1, screenWidth - TOOLTIP_EDGE_MARGIN * 2);
         int ratioWidth = Math.max(1, Math.round(screenWidth * TOOLTIP_MAX_WIDTH_SCREEN_RATIO));
         int cappedWidth = Math.min(ratioWidth, TOOLTIP_MAX_WRAP_WIDTH);
@@ -242,40 +241,40 @@ final class AttributeWidgetUtil {
         return Math.max(minWidth, Math.min(cappedWidth, availableWidth));
     }
 
-    private static List<OrderedText> wrapTooltipLines(TextRenderer textRenderer, List<Text> lines,
+    private static List<FormattedCharSequence> wrapTooltipLines(Font textRenderer, List<Component> lines,
         int maxWidth) {
-        List<OrderedText> wrappedLines = new ArrayList<>();
-        for (Text line : lines) {
-            wrappedLines.addAll(textRenderer.wrapLines(line, maxWidth));
+        List<FormattedCharSequence> wrappedLines = new ArrayList<>();
+        for (Component line : lines) {
+            wrappedLines.addAll(textRenderer.split(line, maxWidth));
         }
         return wrappedLines;
     }
 
-    private static List<Text> buildAttributeTooltip(Module module, AttributeConfig cfg) {
-        List<Text> lines = new ArrayList<>();
-        Text description = descriptionText(module, cfg);
+    private static List<Component> buildAttributeTooltip(Module module, AttributeConfig cfg) {
+        List<Component> lines = new ArrayList<>();
+        Component description = descriptionText(module, cfg);
         if (description != null) {
             lines.add(description);
         }
 
-        Text performance = performanceImpactText(cfg);
+        Component performance = performanceImpactText(cfg);
         if (performance != null) {
             lines.add(performance);
         }
         return lines;
     }
 
-    private static Text descriptionText(Module module, AttributeConfig cfg) {
+    private static Component descriptionText(Module module, AttributeConfig cfg) {
         if (module == null || cfg == null || cfg.name == null || cfg.name.isBlank()) {
             return null;
         }
 
         boolean explicitDescription = cfg.description != null && !cfg.description.isBlank();
         String descriptionKey = explicitDescription ? cfg.description.trim() : cfg.name + DESCRIPTION_SUFFIX;
-        Text translated = module.translateText(descriptionKey);
+        Component translated = module.translateText(descriptionKey);
         if (explicitDescription) {
             return translated.getString().equals(descriptionKey) && !hasTranslation(module, descriptionKey)
-                ? Text.literal(descriptionKey)
+                ? Component.literal(descriptionKey)
                 : translated;
         }
 
@@ -287,38 +286,38 @@ final class AttributeWidgetUtil {
             && module.dynamicTranslations.containsKey(key)) {
             return true;
         }
-        return !Text.translatable(key).getString().equals(key);
+        return !Component.translatable(key).getString().equals(key);
     }
 
-    private static Text performanceImpactText(AttributeConfig cfg) {
+    private static Component performanceImpactText(AttributeConfig cfg) {
         String impact = normalizePerformanceImpact(cfg == null ? null : cfg.performanceImpact);
         if (impact == null) {
             return null;
         }
 
         String key;
-        Formatting color;
+        ChatFormatting color;
         switch (impact) {
             case "low" -> {
                 key = PERFORMANCE_LOW;
-                color = Formatting.GREEN;
+                color = ChatFormatting.GREEN;
             }
             case "medium" -> {
                 key = PERFORMANCE_MEDIUM;
-                color = Formatting.YELLOW;
+                color = ChatFormatting.YELLOW;
             }
             case "high" -> {
                 key = PERFORMANCE_HIGH;
-                color = Formatting.RED;
+                color = ChatFormatting.RED;
             }
             default -> {
                 return null;
             }
         }
 
-        return Text.translatable(PERFORMANCE_IMPACT)
-            .append(Text.literal(": "))
-            .append(Text.translatable(key).formatted(color));
+        return Component.translatable(PERFORMANCE_IMPACT)
+            .append(Component.literal(": "))
+            .append(Component.translatable(key).withStyle(color));
     }
 
     private static String normalizePerformanceImpact(String performanceImpact) {
@@ -363,7 +362,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    static void drawBorder(DrawContext ctx, int x, int y, int w, int h, int color) {
+    static void drawBorder(GuiGraphics ctx, int x, int y, int w, int h, int color) {
         ctx.fill(x, y, x + w, y + 1, color);
         ctx.fill(x, y + h - 1, x + w, y + h, color);
         ctx.fill(x, y, x + 1, y + h, color);
@@ -428,8 +427,8 @@ final class AttributeWidgetUtil {
         return Pipeline.reconcilePresetSelectors(module) || changed;
     }
 
-    static void syncWidgetVisibility(List<ClickableWidget> widgets, boolean rowVisible) {
-        for (ClickableWidget widget : widgets) {
+    static void syncWidgetVisibility(List<AbstractWidget> widgets, boolean rowVisible) {
+        for (AbstractWidget widget : widgets) {
             if (widget instanceof AttributeResetButton resetButton) {
                 resetButton.syncVisibility(rowVisible);
                 continue;
@@ -439,14 +438,14 @@ final class AttributeWidgetUtil {
         }
     }
 
-    static boolean isResetButton(ClickableWidget widget) {
+    static boolean isResetButton(AbstractWidget widget) {
         return widget instanceof AttributeResetButton;
     }
 
-    static void layoutWidgets(List<ClickableWidget> widgets, int x, int y, int singleWidth,
+    static void layoutWidgets(List<AbstractWidget> widgets, int x, int y, int singleWidth,
         int tripleWidth, int gap) {
         AttributeResetButton resetButton = resetButton(widgets);
-        List<ClickableWidget> valueWidgets = valueWidgets(widgets);
+        List<AbstractWidget> valueWidgets = valueWidgets(widgets);
         int valueX = x;
 
         if (resetButton != null) {
@@ -457,7 +456,7 @@ final class AttributeWidgetUtil {
         }
 
         if (valueWidgets.size() == 1) {
-            ClickableWidget w = valueWidgets.get(0);
+            AbstractWidget w = valueWidgets.get(0);
             w.setX(valueX);
             w.setY(y);
             w.setWidth(singleWidth);
@@ -466,7 +465,7 @@ final class AttributeWidgetUtil {
 
         if (valueWidgets.size() == 3) {
             for (int i = 0; i < 3; i++) {
-                ClickableWidget cw = valueWidgets.get(i);
+                AbstractWidget cw = valueWidgets.get(i);
                 cw.setX(valueX + i * (tripleWidth + gap));
                 cw.setY(y);
                 cw.setWidth(tripleWidth);
@@ -474,7 +473,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    static int totalWidgetWidth(List<ClickableWidget> widgets, int singleWidth, int tripleWidth, int gap) {
+    static int totalWidgetWidth(List<AbstractWidget> widgets, int singleWidth, int tripleWidth, int gap) {
         int valueWidth = singleWidth;
         if (valueWidgets(widgets).size() == 3) {
             valueWidth = (tripleWidth * 3) + (gap * 2);
@@ -492,11 +491,11 @@ final class AttributeWidgetUtil {
         return cfg.value == null ? "" : cfg.value;
     }
 
-    private static AttributeResetButton resetButton(List<ClickableWidget> widgets) {
+    private static AttributeResetButton resetButton(List<AbstractWidget> widgets) {
         if (widgets == null) {
             return null;
         }
-        for (ClickableWidget widget : widgets) {
+        for (AbstractWidget widget : widgets) {
             if (widget instanceof AttributeResetButton resetButton) {
                 return resetButton;
             }
@@ -504,12 +503,12 @@ final class AttributeWidgetUtil {
         return null;
     }
 
-    private static List<ClickableWidget> valueWidgets(List<ClickableWidget> widgets) {
-        List<ClickableWidget> valueWidgets = new ArrayList<>();
+    private static List<AbstractWidget> valueWidgets(List<AbstractWidget> widgets) {
+        List<AbstractWidget> valueWidgets = new ArrayList<>();
         if (widgets == null) {
             return valueWidgets;
         }
-        for (ClickableWidget widget : widgets) {
+        for (AbstractWidget widget : widgets) {
             if (widget instanceof AttributeResetButton) {
                 continue;
             }
@@ -518,13 +517,13 @@ final class AttributeWidgetUtil {
         return valueWidgets;
     }
 
-    private static void syncValueWidgetsFromConfig(List<ClickableWidget> widgets, AttributeConfig cfg,
+    private static void syncValueWidgetsFromConfig(List<AbstractWidget> widgets, AttributeConfig cfg,
         Module module) {
         if (widgets == null || cfg == null) {
             return;
         }
 
-        for (ClickableWidget widget : widgets) {
+        for (AbstractWidget widget : widgets) {
             if (widget instanceof ConfigValueWidget valueWidget) {
                 valueWidget.syncFromConfig();
             }
@@ -532,8 +531,8 @@ final class AttributeWidgetUtil {
 
         String type = cfg.type == null ? "" : cfg.type.toLowerCase(Locale.ROOT);
         if (type.equals("bool")) {
-            for (ClickableWidget widget : widgets) {
-                if (widget instanceof ButtonWidget button && !(widget instanceof AttributeResetButton)) {
+            for (AbstractWidget widget : widgets) {
+                if (widget instanceof Button button && !(widget instanceof AttributeResetButton)) {
                     boolean value = "render_pipeline.true".equalsIgnoreCase(cfg.value);
                     button.setMessage(module.translateText(value
                         ? "render_pipeline.true"
@@ -542,9 +541,9 @@ final class AttributeWidgetUtil {
             }
         }
 
-        List<TextFieldWidget> textFields = new ArrayList<>();
-        for (ClickableWidget widget : widgets) {
-            if (widget instanceof TextFieldWidget textField) {
+        List<EditBox> textFields = new ArrayList<>();
+        for (AbstractWidget widget : widgets) {
+            if (widget instanceof EditBox textField) {
                 textFields.add(textField);
             }
         }
@@ -556,28 +555,28 @@ final class AttributeWidgetUtil {
         if (type.equals("vec3")) {
             float[] values = parseVec3(cfg.value);
             for (int i = 0; i < Math.min(3, textFields.size()); i++) {
-                textFields.get(i).setText(trimFloat(values[i]));
+                textFields.get(i).setValue(trimFloat(values[i]));
             }
             return;
         }
 
-        for (TextFieldWidget textField : textFields) {
-            textField.setText(cfg.value == null ? "" : cfg.value);
+        for (EditBox textField : textFields) {
+            textField.setValue(cfg.value == null ? "" : cfg.value);
         }
     }
 
-    static List<ClickableWidget> buildWidgets(Module module, AttributeConfig cfg, TextRenderer textRenderer,
+    static List<AbstractWidget> buildWidgets(Module module, AttributeConfig cfg, Font textRenderer,
         int width,
         int vec3ComponentWidth) {
         return buildWidgets(module, cfg, textRenderer, width, vec3ComponentWidth, null);
     }
 
-    static List<ClickableWidget> buildWidgets(Module module, AttributeConfig cfg, TextRenderer textRenderer,
+    static List<AbstractWidget> buildWidgets(Module module, AttributeConfig cfg, Font textRenderer,
         int width,
         int vec3ComponentWidth,
         Runnable afterValueChange) {
         String type = cfg.type == null ? "" : cfg.type.toLowerCase(Locale.ROOT);
-        List<ClickableWidget> valueWidgets;
+        List<AbstractWidget> valueWidgets;
 
         if (type.startsWith("enum:")) {
             valueWidgets = List.of(buildEnumWidget(module, cfg, cfg.type.substring(5), width,
@@ -597,36 +596,36 @@ final class AttributeWidgetUtil {
             };
         }
 
-        List<ClickableWidget> widgets = new ArrayList<>();
+        List<AbstractWidget> widgets = new ArrayList<>();
         widgets.add(new AttributeResetButton(module, cfg, valueWidgets, afterValueChange));
         widgets.addAll(valueWidgets);
         return widgets;
     }
 
-    private static ClickableWidget buildBoolWidget(Module module, AttributeConfig cfg, int width) {
+    private static AbstractWidget buildBoolWidget(Module module, AttributeConfig cfg, int width) {
         boolean b = "render_pipeline.true".equalsIgnoreCase(cfg.value);
-        return ButtonWidget.builder(
+        return Button.builder(
             module.translateText(b ? "render_pipeline.true" : "render_pipeline.false"), btn -> {
                 boolean nv = !"render_pipeline.true".equalsIgnoreCase(cfg.value);
                 Pipeline.setAttributeValue(
                     module, cfg, nv ? "render_pipeline.true" : "render_pipeline.false");
                 btn.setMessage(module.translateText(cfg.value));
-            }).dimensions(0, 0, width, 20).build();
+            }).bounds(0, 0, width, 20).build();
     }
 
-    private static ClickableWidget buildEnumWidget(Module module, AttributeConfig cfg, String raw, int width,
+    private static AbstractWidget buildEnumWidget(Module module, AttributeConfig cfg, String raw, int width,
         Runnable afterValueChange) {
         String[] values = raw.isEmpty() ? new String[]{"<empty>"} : raw.split("-");
         return new EnumAttributeButton(module, cfg, values, width, afterValueChange);
     }
 
-    private static ClickableWidget buildIntWidget(Module module, AttributeConfig cfg, TextRenderer textRenderer,
+    private static AbstractWidget buildIntWidget(Module module, AttributeConfig cfg, Font textRenderer,
         int width) {
-        TextFieldWidget tf = new TextFieldWidget(textRenderer, 0, 0, width, 20, Text.empty());
+        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
         tf.setMaxLength(64);
-        tf.setText(cfg.value == null ? "" : cfg.value);
-        tf.setTextPredicate(s -> s.isEmpty() || s.equals("-") || s.matches("-?\\d+"));
-        tf.setChangedListener(text -> {
+        tf.setValue(cfg.value == null ? "" : cfg.value);
+        tf.setFilter(s -> s.isEmpty() || s.equals("-") || s.matches("-?\\d+"));
+        tf.setResponder(text -> {
             if (isStrictInt(text)) {
                 Pipeline.setAttributeValue(module, cfg, text);
             }
@@ -634,16 +633,16 @@ final class AttributeWidgetUtil {
         return tf;
     }
 
-    private static ClickableWidget buildFloatWidget(Module module, AttributeConfig cfg, TextRenderer textRenderer,
+    private static AbstractWidget buildFloatWidget(Module module, AttributeConfig cfg, Font textRenderer,
         int width) {
-        TextFieldWidget tf = new TextFieldWidget(textRenderer, 0, 0, width, 20, Text.empty());
+        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
         tf.setMaxLength(64);
-        tf.setText(cfg.value == null ? "" : cfg.value);
-        tf.setTextPredicate(
+        tf.setValue(cfg.value == null ? "" : cfg.value);
+        tf.setFilter(
             s -> s.isEmpty() || s.equals("-") || s.equals(".") || s.equals("-.") || s.matches(
                 "-?\\d+")
                 || s.matches("-?\\d+\\.") || s.matches("-?\\d*\\.\\d+"));
-        tf.setChangedListener(text -> {
+        tf.setResponder(text -> {
             if (isStrictFloat(text)) {
                 Pipeline.setAttributeValue(module, cfg, text);
             }
@@ -651,57 +650,57 @@ final class AttributeWidgetUtil {
         return tf;
     }
 
-    private static ClickableWidget buildStringWidget(Module module, AttributeConfig cfg, TextRenderer textRenderer,
+    private static AbstractWidget buildStringWidget(Module module, AttributeConfig cfg, Font textRenderer,
         int width) {
-        TextFieldWidget tf = new TextFieldWidget(textRenderer, 0, 0, width, 20, Text.empty());
+        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
         tf.setMaxLength(128);
-        tf.setText(cfg.value == null ? "" : cfg.value);
-        tf.setChangedListener(text -> Pipeline.setAttributeValue(module, cfg, text));
+        tf.setValue(cfg.value == null ? "" : cfg.value);
+        tf.setResponder(text -> Pipeline.setAttributeValue(module, cfg, text));
         return tf;
     }
 
-    private static List<ClickableWidget> buildVec3Widget(Module module, AttributeConfig cfg,
-        TextRenderer textRenderer,
+    private static List<AbstractWidget> buildVec3Widget(Module module, AttributeConfig cfg,
+        Font textRenderer,
         int componentWidth) {
         if (cfg.value == null || cfg.value.isEmpty()) {
             Pipeline.setAttributeValue(module, cfg, "0,0,0");
         }
 
         float[] v = parseVec3(cfg.value);
-        TextFieldWidget x = vecField(textRenderer, v[0], componentWidth);
-        TextFieldWidget y = vecField(textRenderer, v[1], componentWidth);
-        TextFieldWidget z = vecField(textRenderer, v[2], componentWidth);
+        EditBox x = vecField(textRenderer, v[0], componentWidth);
+        EditBox y = vecField(textRenderer, v[1], componentWidth);
+        EditBox z = vecField(textRenderer, v[2], componentWidth);
 
         Runnable syncIfValid = () -> {
-            String sx = x.getText();
-            String sy = y.getText();
-            String sz = z.getText();
+            String sx = x.getValue();
+            String sy = y.getValue();
+            String sz = z.getValue();
 
             if (isStrictFloat(sx) && isStrictFloat(sy) && isStrictFloat(sz)) {
                 Pipeline.setAttributeValue(module, cfg, sx + "," + sy + "," + sz);
             }
         };
 
-        x.setChangedListener(s -> syncIfValid.run());
-        y.setChangedListener(s -> syncIfValid.run());
-        z.setChangedListener(s -> syncIfValid.run());
+        x.setResponder(s -> syncIfValid.run());
+        y.setResponder(s -> syncIfValid.run());
+        z.setResponder(s -> syncIfValid.run());
 
         syncIfValid.run();
         return List.of(x, y, z);
     }
 
-    private static TextFieldWidget vecField(TextRenderer textRenderer, float v, int width) {
-        TextFieldWidget tf = new TextFieldWidget(textRenderer, 0, 0, width, 20, Text.empty());
+    private static EditBox vecField(Font textRenderer, float v, int width) {
+        EditBox tf = new EditBox(textRenderer, 0, 0, width, 20, Component.empty());
         tf.setMaxLength(32);
-        tf.setText(trimFloat(v));
-        tf.setTextPredicate(
+        tf.setValue(trimFloat(v));
+        tf.setFilter(
             s -> s.isEmpty() || s.equals("-") || s.equals(".") || s.equals("-.") || s.matches(
                 "-?\\d+")
                 || s.matches("-?\\d+\\.") || s.matches("-?\\d*\\.\\d+"));
         return tf;
     }
 
-    private static ClickableWidget buildIntRange(Module module, AttributeConfig cfg, String raw, int width) {
+    private static AbstractWidget buildIntRange(Module module, AttributeConfig cfg, String raw, int width) {
         Range r = parseRange(raw);
         int start = (int) r.start;
         int end = (int) r.end;
@@ -717,14 +716,14 @@ final class AttributeWidgetUtil {
         } else {
             Pipeline.setAttributeValue(module, cfg, String.valueOf(start));
         }
-        cur = MathHelper.clamp(cur, start, end);
+        cur = Mth.clamp(cur, start, end);
 
         IntRangeSlider slider = new IntRangeSlider(0, 0, width, 20, start, end, cur, module, cfg);
         slider.updateMessage();
         return slider;
     }
 
-    private static ClickableWidget buildFloatRange(Module module, AttributeConfig cfg, String raw, int width) {
+    private static AbstractWidget buildFloatRange(Module module, AttributeConfig cfg, String raw, int width) {
         Range r = parseRange(raw);
         float start = (float) r.start;
         float end = (float) r.end;
@@ -740,7 +739,7 @@ final class AttributeWidgetUtil {
         } else {
             Pipeline.setAttributeValue(module, cfg, formatTwoDecimals(start));
         }
-        cur = MathHelper.clamp(cur, start, end);
+        cur = Mth.clamp(cur, start, end);
 
         FloatRangeSlider slider = new FloatRangeSlider(0, 0, width, 20, start, end, cur, module, cfg);
         slider.updateMessage();
@@ -817,7 +816,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    private static class AttributeTooltipPositioner implements TooltipPositioner {
+    private static class AttributeTooltipPositioner implements ClientTooltipPositioner {
 
         private final TooltipFocus focus;
 
@@ -826,12 +825,12 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        public Vector2ic getPosition(int screenWidth, int screenHeight, int x, int y, int width,
+        public Vector2ic positionTooltip(int screenWidth, int screenHeight, int x, int y, int width,
             int height) {
             int tooltipX = x + TOOLTIP_CURSOR_OFFSET_X;
             int maxX = Math.max(TOOLTIP_EDGE_MARGIN,
                 screenWidth - width - TOOLTIP_EDGE_MARGIN);
-            tooltipX = MathHelper.clamp(tooltipX, TOOLTIP_EDGE_MARGIN, maxX);
+            tooltipX = Mth.clamp(tooltipX, TOOLTIP_EDGE_MARGIN, maxX);
 
             int minY = TOOLTIP_EDGE_MARGIN;
             int maxY = Math.max(minY,
@@ -851,7 +850,7 @@ final class AttributeWidgetUtil {
                 int spaceAbove = Math.max(0, aboveY - minY);
                 tooltipY = spaceBelow >= spaceAbove ? belowY : aboveY;
             }
-            tooltipY = MathHelper.clamp(tooltipY, minY, maxY);
+            tooltipY = Mth.clamp(tooltipY, minY, maxY);
 
             return new Vector2i(tooltipX, tooltipY);
         }
@@ -862,16 +861,16 @@ final class AttributeWidgetUtil {
         void syncFromConfig();
     }
 
-    private static class ResetIconButton extends ButtonWidget {
+    private static class ResetIconButton extends Button {
 
         private ResetIconButton(int x, int y, int width, int height, String tooltipKey,
-            PressAction onPress) {
-            super(x, y, width, height, Text.empty(), onPress, DEFAULT_NARRATION_SUPPLIER);
-            setTooltip(Tooltip.of(Text.translatable(tooltipKey)));
+            OnPress onPress) {
+            super(x, y, width, height, Component.empty(), onPress, DEFAULT_NARRATION);
+            setTooltip(Tooltip.create(Component.translatable(tooltipKey)));
         }
 
         @Override
-        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+        protected void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
             super.renderWidget(context, mouseX, mouseY, delta);
 
             int iconSize = Math.round(Math.min(getWidth(), getHeight()) * RESET_ICON_SIZE_RATIO);
@@ -884,7 +883,7 @@ final class AttributeWidgetUtil {
                 ((color >> 8) & 0xFF) / 255f,
                 (color & 0xFF) / 255f,
                 ((color >> 24) & 0xFF) / 255f);
-            context.drawTexture(RenderLayer::getGuiTextured, RESET_TEX, iconX, iconY, 0, 0,
+            context.blit(RenderType::guiTextured, RESET_TEX, iconX, iconY, 0, 0,
                 iconSize, iconSize, RESET_TEXTURE_SIZE, RESET_TEXTURE_SIZE, RESET_TEXTURE_SIZE,
                 RESET_TEXTURE_SIZE);
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
@@ -895,11 +894,11 @@ final class AttributeWidgetUtil {
 
         private final Module module;
         private final AttributeConfig cfg;
-        private final List<ClickableWidget> valueWidgets;
+        private final List<AbstractWidget> valueWidgets;
         private final Runnable afterValueChange;
 
         private AttributeResetButton(Module module, AttributeConfig cfg,
-            List<ClickableWidget> valueWidgets, Runnable afterValueChange) {
+            List<AbstractWidget> valueWidgets, Runnable afterValueChange) {
             super(0, 0, RESET_BUTTON_WIDTH, 20, RESET, button -> {
             });
             this.module = module;
@@ -926,7 +925,7 @@ final class AttributeWidgetUtil {
         }
     }
 
-    private static class EnumAttributeButton extends ButtonWidget implements ConfigValueWidget {
+    private static class EnumAttributeButton extends Button implements ConfigValueWidget {
 
         private final Module module;
         private final AttributeConfig cfg;
@@ -936,8 +935,8 @@ final class AttributeWidgetUtil {
 
         private EnumAttributeButton(Module module, AttributeConfig cfg, String[] values, int width,
             Runnable afterValueChange) {
-            super(0, 0, width, 20, Text.empty(), button -> {
-            }, DEFAULT_NARRATION_SUPPLIER);
+            super(0, 0, width, 20, Component.empty(), button -> {
+            }, DEFAULT_NARRATION);
             this.module = module;
             this.cfg = cfg;
             this.values = values;
@@ -959,7 +958,7 @@ final class AttributeWidgetUtil {
         }
 
         @Override
-        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+        protected void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
             syncFromConfig();
             super.renderWidget(context, mouseX, mouseY, delta);
         }
@@ -998,7 +997,7 @@ final class AttributeWidgetUtil {
 
     }
 
-    private static class IntRangeSlider extends SliderWidget implements ConfigValueWidget {
+    private static class IntRangeSlider extends AbstractSliderButton implements ConfigValueWidget {
 
         private final int start;
         private final int end;
@@ -1007,7 +1006,7 @@ final class AttributeWidgetUtil {
 
         public IntRangeSlider(int x, int y, int width, int height, int start, int end, int cur,
             Module module, AttributeConfig cfg) {
-            super(x, y, width, height, Text.empty(),
+            super(x, y, width, height, Component.empty(),
                 (cur - (double) start) / (double) (end - start));
             this.start = start;
             this.end = end;
@@ -1026,7 +1025,7 @@ final class AttributeWidgetUtil {
         @Override
         public void syncFromConfig() {
             int current = isInt(cfg.value) ? Integer.parseInt(cfg.value) : start;
-            current = MathHelper.clamp(current, start, end);
+            current = Mth.clamp(current, start, end);
             this.value = end == start ? 0 : (current - (double) start) / (double) (end - start);
             updateMessage();
         }
@@ -1034,17 +1033,17 @@ final class AttributeWidgetUtil {
         @Override
         protected void updateMessage() {
             int value = current();
-            setMessage(Text.translatable(Integer.toString(value)));
+            setMessage(Component.translatable(Integer.toString(value)));
         }
 
         @Override
         protected void applyValue() {
-            int v = MathHelper.clamp(current(), start, end);
+            int v = Mth.clamp(current(), start, end);
             Pipeline.setAttributeValue(module, cfg, Integer.toString(v));
         }
     }
 
-    private static class FloatRangeSlider extends SliderWidget implements ConfigValueWidget {
+    private static class FloatRangeSlider extends AbstractSliderButton implements ConfigValueWidget {
 
         private final float start;
         private final float end;
@@ -1054,7 +1053,7 @@ final class AttributeWidgetUtil {
         public FloatRangeSlider(int x, int y, int width, int height, float start, float end,
             float cur,
             Module module, AttributeConfig cfg) {
-            super(x, y, width, height, Text.empty(), (cur - start) / (double) (end - start));
+            super(x, y, width, height, Component.empty(), (cur - start) / (double) (end - start));
             this.start = start;
             this.end = end;
             this.module = module;
@@ -1072,19 +1071,19 @@ final class AttributeWidgetUtil {
         @Override
         public void syncFromConfig() {
             float current = isFloat(cfg.value) ? Float.parseFloat(cfg.value) : start;
-            current = MathHelper.clamp(current, start, end);
+            current = Mth.clamp(current, start, end);
             this.value = end == start ? 0 : (current - start) / (double) (end - start);
             updateMessage();
         }
 
         @Override
         protected void updateMessage() {
-            setMessage(Text.translatable(formatTwoDecimals(current())));
+            setMessage(Component.translatable(formatTwoDecimals(current())));
         }
 
         @Override
         protected void applyValue() {
-            float v = MathHelper.clamp(current(), start, end);
+            float v = Mth.clamp(current(), start, end);
             Pipeline.setAttributeValue(module, cfg, formatTwoDecimals(v));
         }
     }

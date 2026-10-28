@@ -6,19 +6,19 @@ import static org.lwjgl.system.MemoryUtil.memAddress;
 import static org.lwjgl.system.MemoryUtil.memSet;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.texture.TextureTracker;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.Map;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.BuiltBuffer;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.Fog;
-import net.minecraft.client.render.RenderPhase;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.FogParameters;
+import net.minecraft.client.renderer.RenderStateShard;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.system.MemoryStack;
@@ -55,18 +55,18 @@ public class BufferProxy {
     }
 
     public static VertexIndexBufferHandle createAndUploadVertexIndexBuffer(
-        BuiltBuffer builtBuffer) {
+        MeshData builtBuffer) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.BufferProxy.createAndUploadVertexIndexBuffer");
         }
         try {
-            BuiltBuffer.DrawParameters drawParameters = builtBuffer.getDrawParameters();
-            assert builtBuffer.getDrawParameters().mode() == VertexFormat.DrawMode.QUADS;
+            MeshData.DrawState drawParameters = builtBuffer.drawState();
+            assert builtBuffer.drawState().mode() == VertexFormat.Mode.QUADS;
 
-            int vertexSize = drawParameters.vertexCount() * drawParameters.format().getVertexSizeByte();
-            int indexSize = drawParameters.indexCount() * drawParameters.indexType().size;
-            BufferInfo vertexBuffer = getBufferInfo(builtBuffer.getBuffer());
-            ByteBuffer sortedIndexBuffer = builtBuffer.getSortedBuffer();
+            int vertexSize = drawParameters.vertexCount() * drawParameters.format().getVertexSize();
+            int indexSize = drawParameters.indexCount() * drawParameters.indexType().bytes;
+            BufferInfo vertexBuffer = getBufferInfo(builtBuffer.vertexBuffer());
+            ByteBuffer sortedIndexBuffer = builtBuffer.indexBuffer();
             BufferInfo sortedIndex = sortedIndexBuffer == null ? null : getBufferInfo(sortedIndexBuffer);
             assert vertexBuffer.sizeBytes == vertexSize;
             assert sortedIndex == null || sortedIndex.sizeBytes == indexSize;
@@ -131,8 +131,8 @@ public class BufferProxy {
     private static native void updateWorldUniformNative(long uniformAddress);
 
     public static void updateWorldUniform(Camera camera, Matrix4f viewMatrix,
-        Matrix4f effectedViewMatrix, Matrix4f projectionMatrix, int overlayTextureID, Fog fog,
-        ClientWorld world, int endSkyTextureID, int endPortalTextureID, int lightMapTextureID) {
+        Matrix4f effectedViewMatrix, Matrix4f projectionMatrix, int overlayTextureID, FogParameters fog,
+        ClientLevel world, int endSkyTextureID, int endPortalTextureID, int lightMapTextureID) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.BufferProxy.updateWorldUniform");
         }
@@ -160,7 +160,7 @@ public class BufferProxy {
 
             byteOffset += Integer.BYTES;
 
-            RenderPhase.setupGlintTexturing(0.16F);
+            RenderStateShard.setupGlintTexturing(0.16F);
             Matrix4f textureMat = RenderSystem.getTextureMatrix();
             textureMat.get(byteOffset, uniformBuffer);
             byteOffset += Float.BYTES * 16;
@@ -168,7 +168,7 @@ public class BufferProxy {
 
             uniformBuffer.putInt(byteOffset, overlayTextureID);
             byteOffset += Integer.BYTES;
-            uniformBuffer.putInt(byteOffset, camera.isThirdPerson() ? 0 : 1);
+            uniformBuffer.putInt(byteOffset, camera.isDetached() ? 0 : 1);
             byteOffset += Integer.BYTES;
             uniformBuffer.putFloat(byteOffset, fog.start());
             byteOffset += Float.BYTES;
@@ -184,13 +184,13 @@ public class BufferProxy {
             uniformBuffer.putFloat(byteOffset, fog.alpha());
             byteOffset += Float.BYTES;
 
-            uniformBuffer.putInt(byteOffset, fog.shape().getId());
+            uniformBuffer.putInt(byteOffset, fog.shape().getIndex());
             byteOffset += Integer.BYTES;
-            uniformBuffer.putInt(byteOffset, world.getDimensionEffects().getSkyType().ordinal());
+            uniformBuffer.putInt(byteOffset, world.effects().skyType().ordinal());
             byteOffset += Integer.BYTES;
-            uniformBuffer.putInt(byteOffset, world.getBottomY());
+            uniformBuffer.putInt(byteOffset, world.getMinY());
             byteOffset += Integer.BYTES;
-            uniformBuffer.putInt(byteOffset, world.getBottomY() + world.getHeight());
+            uniformBuffer.putInt(byteOffset, world.getMinY() + world.getHeight());
             byteOffset += Integer.BYTES;
 
             byteOffset += Double.BYTES;
@@ -213,7 +213,7 @@ public class BufferProxy {
             uniformBuffer.putInt(byteOffset, lightMapTextureID);
             byteOffset += Integer.BYTES;
             uniformBuffer.putInt(byteOffset,
-                Math.max(16, MinecraftClient.getInstance().options.getClampedViewDistance() * 16));
+                Math.max(16, Minecraft.getInstance().options.getEffectiveRenderDistance() * 16));
             byteOffset += Integer.BYTES;
 
             uniformBuffer.putInt(byteOffset, Vista.distanceBlocks());
@@ -287,10 +287,10 @@ public class BufferProxy {
             byteOffset += Integer.BYTES;
             uniformBuffer.putInt(byteOffset, moonTextureID);
             byteOffset += Integer.BYTES;
-            var minecraft = MinecraftClient.getInstance();
-            var camera = minecraft.gameRenderer.getCamera().getPos();
+            var minecraft = Minecraft.getInstance();
+            var camera = minecraft.gameRenderer.getMainCamera().getPosition();
             uniformBuffer.putInt(byteOffset, com.radiance.client.texture.RainExposure.update(
-                minecraft.world, camera.x, camera.z));
+                minecraft.level, camera.x, camera.z));
 
             updateSkyUniformNative(uniformAddress);
         } finally {

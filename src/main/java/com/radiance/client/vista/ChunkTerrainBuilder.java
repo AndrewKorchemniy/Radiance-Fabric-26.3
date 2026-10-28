@@ -5,51 +5,51 @@ import com.radiance.mixin_related.extensions.vanilla_resource_tracker.ISpriteCon
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.block.BlockRenderType;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.color.world.BiomeColors;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.block.BlockRenderManager;
-import net.minecraft.client.render.block.FluidRenderer;
-import net.minecraft.client.render.model.BakedModel;
-import net.minecraft.client.render.model.BakedQuad;
-import net.minecraft.client.render.model.ModelBaker;
-import net.minecraft.client.texture.Sprite;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.fluid.Fluid;
-import net.minecraft.registry.tag.FluidTags;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.random.Random;
-import net.minecraft.world.BlockRenderView;
-import net.minecraft.util.shape.VoxelShapes;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.BiomeColors;
+import net.minecraft.client.renderer.ItemBlockRenderTypes;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.block.BlockRenderDispatcher;
+import net.minecraft.client.renderer.block.LiquidBlockRenderer;
+import net.minecraft.client.renderer.block.model.BakedQuad;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.client.resources.model.ModelBakery;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.Fluid;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.Shapes;
 
 public class ChunkTerrainBuilder {
     private VistaTerrain.Builder builder;
     private final Map<BlockState, Material> materials = new HashMap<>();
-    private final BlockRenderManager blockRenderManager = MinecraftClient.getInstance().getBlockRenderManager();
-    private final Random random = Random.create(42);
+    private final BlockRenderDispatcher blockRenderManager = Minecraft.getInstance().getBlockRenderer();
+    private final RandomSource random = RandomSource.create(42);
 
-    public void add(BlockRenderView world, BlockPos pos, BlockState state) {
+    public void add(BlockAndTintGetter world, BlockPos pos, BlockState state) {
         int x = pos.getX() & 15;
         int z = pos.getZ() & 15;
         if (x != 0 && x != 15 && z != 0 && z != 15) { return; }
         if (builder == null) {
-            builder = new VistaTerrain.Builder(world.getBrightness(Direction.WEST, true),
-                world.getBrightness(Direction.EAST, true), world.getBrightness(Direction.NORTH, true),
-                world.getBrightness(Direction.SOUTH, true));
+            builder = new VistaTerrain.Builder(world.getShade(Direction.WEST, true),
+                world.getShade(Direction.EAST, true), world.getShade(Direction.NORTH, true),
+                world.getShade(Direction.SOUTH, true));
         }
-        if (state.getRenderType() == BlockRenderType.MODEL) {
-            List<Box> boxes = state.getCullingShape().getBoundingBoxes();
+        if (state.getRenderShape() == RenderShape.MODEL) {
+            List<AABB> boxes = state.getOcclusionShape().toAabbs();
             if (!boxes.isEmpty()) {
                 Material material = materials.computeIfAbsent(state, this::getMaterial);
                 int tint = material.tintIndex < 0 ? 0xffffff
-                    : MinecraftClient.getInstance().getBlockColors().getColor(state, world, pos, material.tintIndex);
+                    : Minecraft.getInstance().getBlockColors().getColor(state, world, pos, material.tintIndex);
                 int color = tint(material.color, tint);
-                for (Box box : boxes) {
+                for (AABB box : boxes) {
                     if ((x != 0 || box.minX > 0) && (x != 15 || box.maxX < 1)
                         && (z != 0 || box.minZ > 0) && (z != 15 || box.maxZ < 1)) { continue; }
                     builder.add(pos.getX(), pos.getZ(), pos.getY() + (float) box.minY,
@@ -61,8 +61,8 @@ public class ChunkTerrainBuilder {
         }
         FluidState fluid = state.getFluidState();
         if (!fluid.isEmpty()) {
-            boolean water = fluid.isIn(FluidTags.WATER);
-            Fluid type = fluid.getFluid();
+            boolean water = fluid.is(FluidTags.WATER);
+            Fluid type = fluid.getType();
             float center = fluidHeight(world, pos, type);
             float minimum = center;
             float height = center;
@@ -78,19 +78,19 @@ public class ChunkTerrainBuilder {
                 minimum = Math.min(Math.min(nw, ne), Math.min(sw, se));
                 height = Math.max(Math.max(nw, ne), Math.max(sw, se));
             }
-            BlockState above = world.getBlockState(pos.up());
-            if (!type.matchesType(above.getFluidState().getFluid())
-                && !sideCovered(world, pos.up(), above, Direction.UP, minimum)) {
+            BlockState above = world.getBlockState(pos.above());
+            if (!type.isSame(above.getFluidState().getType())
+                && !sideCovered(world, pos.above(), above, Direction.UP, minimum)) {
                 height -= 0.001f;
             }
-            BlockState below = world.getBlockState(pos.down());
-            boolean renderBottom = FluidRenderer.shouldRenderSide(fluid, state,
+            BlockState below = world.getBlockState(pos.below());
+            boolean renderBottom = LiquidBlockRenderer.shouldRenderFace(fluid, state,
                 Direction.DOWN, below.getFluidState())
-                && !sideCovered(world, pos.down(), below, Direction.DOWN, 0.8888889f);
-            Sprite sprite = (water ? ModelBaker.WATER_FLOW : ModelBaker.LAVA_FLOW).getSprite();
-            int color = ((ISpriteContentsExt) sprite.getContents()).radiance$getAverageColor();
-            if (water) { color = tint(color, BiomeColors.getWaterColor(world, pos)); }
-            int[] sides = materials.computeIfAbsent(fluid.getBlockState(), this::getMaterial).sides;
+                && !sideCovered(world, pos.below(), below, Direction.DOWN, 0.8888889f);
+            TextureAtlasSprite sprite = (water ? ModelBakery.WATER_FLOW : ModelBakery.LAVA_FLOW).sprite();
+            int color = ((ISpriteContentsExt) sprite.contents()).radiance$getAverageColor();
+            if (water) { color = tint(color, BiomeColors.getAverageWaterColor(world, pos)); }
+            int[] sides = materials.computeIfAbsent(fluid.createLegacyBlock(), this::getMaterial).sides;
             builder.add(pos.getX(), pos.getZ(), pos.getY() + (renderBottom ? 0.001f : 0),
                 pos.getY() + height,
                 0, 1, 0, 1, color, water ? VistaProxy.MATERIAL_WATER : 0,
@@ -101,7 +101,7 @@ public class ChunkTerrainBuilder {
     public VistaTerrain build() { return builder == null ? VistaTerrain.EMPTY : builder.build(); }
 
     private Material getMaterial(BlockState state) {
-        BakedModel model = blockRenderManager.getModel(state);
+        BakedModel model = blockRenderManager.getBlockModel(state);
         random.setSeed(42);
         List<BakedQuad> quads = model.getQuads(state, Direction.NORTH, random);
         if (quads.isEmpty()) {
@@ -109,10 +109,10 @@ public class ChunkTerrainBuilder {
             quads = model.getQuads(state, Direction.UP, random);
         }
         BakedQuad quad = quads.isEmpty() ? null : quads.get(0);
-        Sprite sprite = quad == null ? model.getParticleSprite() : quad.getSprite();
-        int color = ((ISpriteContentsExt) sprite.getContents()).radiance$getAverageColor();
-        if (RenderLayers.getBlockLayer(state) == RenderLayer.getSolid()) { color |= 0xff000000; }
-        return new Material(color, quad != null && quad.hasTint() ? quad.getTintIndex() : -1,
+        TextureAtlasSprite sprite = quad == null ? model.getParticleIcon() : quad.getSprite();
+        int color = ((ISpriteContentsExt) sprite.contents()).radiance$getAverageColor();
+        if (ItemBlockRenderTypes.getChunkRenderType(state) == RenderType.solid()) { color |= 0xff000000; }
+        return new Material(color, quad != null && quad.isTinted() ? quad.getTintIndex() : -1,
             Vista.sideMaterials(state));
     }
 
@@ -123,16 +123,16 @@ public class ChunkTerrainBuilder {
         return (color & 0xff000000) | red | (green << 8) | (blue << 16);
     }
 
-    private static float fluidHeight(BlockRenderView world, BlockPos pos, Fluid fluid) {
+    private static float fluidHeight(BlockAndTintGetter world, BlockPos pos, Fluid fluid) {
         BlockState state = world.getBlockState(pos);
         FluidState sample = state.getFluidState();
-        if (fluid.matchesType(sample.getFluid())) {
-            return fluid.matchesType(world.getFluidState(pos.up()).getFluid()) ? 1 : sample.getHeight();
+        if (fluid.isSame(sample.getType())) {
+            return fluid.isSame(world.getFluidState(pos.above()).getType()) ? 1 : sample.getOwnHeight();
         }
         return state.isSolid() ? -1 : 0;
     }
 
-    private static float cornerHeight(BlockRenderView world, BlockPos diagonalPos, Fluid fluid,
+    private static float cornerHeight(BlockAndTintGetter world, BlockPos diagonalPos, Fluid fluid,
         float center, float northSouth, float eastWest) {
         if (eastWest >= 1 || northSouth >= 1) { return 1; }
         float total = 0;
@@ -162,10 +162,10 @@ public class ChunkTerrainBuilder {
         return total / weight;
     }
 
-    private static boolean sideCovered(BlockRenderView world, BlockPos pos, BlockState state,
+    private static boolean sideCovered(BlockAndTintGetter world, BlockPos pos, BlockState state,
         Direction direction, float height) {
-        return state.isOpaque() && VoxelShapes.isSideCovered(
-            VoxelShapes.cuboid(0, 0, 0, 1, height, 1), state.getCullingShape(), direction);
+        return state.canOcclude() && Shapes.blockOccudes(
+            Shapes.box(0, 0, 0, 1, height, 1), state.getOcclusionShape(), direction);
     }
 
     private record Material(int color, int tintIndex, int[] sides) {}

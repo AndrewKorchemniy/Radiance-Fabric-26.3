@@ -5,7 +5,7 @@ import com.radiance.client.proxy.world.BlockEntitySectionCache;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IChunkBuilderBuiltChunkExt;
 import java.util.stream.Collector;
 import java.util.stream.Stream;
-import net.minecraft.client.render.chunk.ChunkBuilder;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -15,15 +15,15 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(ChunkBuilder.BuiltChunk.class)
+@Mixin(SectionRenderDispatcher.RenderSection.class)
 public class ChunkBuilderBuiltChunkMixins implements IChunkBuilderBuiltChunkExt {
 
     @Shadow
     @Final
-    ChunkBuilder field_20833;
+    SectionRenderDispatcher field_20833;
 
     @Unique
-    public ChunkBuilder radiance$getChunkBuilder() {
+    public SectionRenderDispatcher radiance$getChunkBuilder() {
         return field_20833;
     }
 
@@ -33,41 +33,41 @@ public class ChunkBuilderBuiltChunkMixins implements IChunkBuilderBuiltChunkExt 
         return null;
     }
 
-    @Inject(method = "clear()V", at = @At(value = "TAIL"))
+    @Inject(method = "reset()V", at = @At(value = "TAIL"))
     private void addToRebuildGridClear(CallbackInfo ci) {
-        ChunkBuilder.BuiltChunk self = (ChunkBuilder.BuiltChunk) (Object) this;
+        SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
         BlockEntitySectionCache.changed(self);
         ChunkProxy.enqueueRebuild(self);
     }
 
-    @Inject(method = "setData(Lnet/minecraft/client/render/chunk/ChunkBuilder$ChunkData;)V",
+    @Inject(method = "setCompiled(Lnet/minecraft/client/renderer/chunk/SectionRenderDispatcher$CompiledSection;)V",
         at = @At("TAIL"))
-    private void updateBlockEntitySections(ChunkBuilder.ChunkData data, CallbackInfo ci) {
-        BlockEntitySectionCache.changed((ChunkBuilder.BuiltChunk) (Object) this);
+    private void updateBlockEntitySections(SectionRenderDispatcher.CompiledSection data, CallbackInfo ci) {
+        BlockEntitySectionCache.changed((SectionRenderDispatcher.RenderSection) (Object) this);
     }
 
-    @Inject(method = "scheduleRebuild(Z)V", at = @At(value = "TAIL"))
+    @Inject(method = "setDirty(Z)V", at = @At(value = "TAIL"))
     private void addToRebuildGridScheduleRebuild(CallbackInfo ci) {
-        ChunkBuilder.BuiltChunk self = (ChunkBuilder.BuiltChunk) (Object) this;
+        SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
         ChunkProxy.enqueueRebuild(self);
     }
 
-    @Inject(method = "setSectionPos(J)V", at = @At(value = "HEAD"))
+    @Inject(method = "setSectionNode(J)V", at = @At(value = "HEAD"))
     private void beginNativeChunkRelocation(long sectionPos, CallbackInfo ci) {
-        ChunkBuilder.BuiltChunk self = (ChunkBuilder.BuiltChunk) (Object) this;
-        ChunkProxy.beginRelocation(self, net.minecraft.util.math.ChunkSectionPos.unpackX(sectionPos) << 4,
-            net.minecraft.util.math.ChunkSectionPos.unpackY(sectionPos) << 4,
-            net.minecraft.util.math.ChunkSectionPos.unpackZ(sectionPos) << 4);
+        SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
+        ChunkProxy.beginRelocation(self, net.minecraft.core.SectionPos.x(sectionPos) << 4,
+            net.minecraft.core.SectionPos.y(sectionPos) << 4,
+            net.minecraft.core.SectionPos.z(sectionPos) << 4);
     }
 
-    @Inject(method = "setSectionPos(J)V", at = @At(value = "TAIL"))
+    @Inject(method = "setSectionNode(J)V", at = @At(value = "TAIL"))
     private void finishNativeChunkRelocation(long sectionPos, CallbackInfo ci) {
-        ChunkProxy.finishRelocation((ChunkBuilder.BuiltChunk) (Object) this);
+        ChunkProxy.finishRelocation((SectionRenderDispatcher.RenderSection) (Object) this);
     }
 
-    @Inject(method = "delete()V",
+    @Inject(method = "releaseBuffers()V",
         at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/render/chunk/ChunkBuilder$BuiltChunk;clear()V",
+            target = "Lnet/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection;reset()V",
             shift = At.Shift.AFTER),
         cancellable = true)
     public void cancelVertexConsumerDelete(CallbackInfo ci) {

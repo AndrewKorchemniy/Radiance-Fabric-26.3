@@ -17,7 +17,7 @@ public abstract class OpenGLUiRenderSystemMixins {
         cir.setReturnValue(RendererProxy.maxSupportedTextureSize());
     }
 
-    @Redirect(method = "flipFrame(JLnet/minecraft/client/util/tracy/TracyFrameCapturer;)V",
+    @Redirect(method = "flipFrame(JLcom/mojang/blaze3d/TracyFrameCapture;)V",
         at = @At(value = "INVOKE", target = "Lorg/lwjgl/glfw/GLFW;glfwSwapBuffers(J)V",
             remap = false))
     private static void skipOpenGLSwap(long window) {

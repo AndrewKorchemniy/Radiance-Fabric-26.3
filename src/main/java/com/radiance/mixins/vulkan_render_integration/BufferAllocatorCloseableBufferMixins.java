@@ -1,20 +1,20 @@
 package com.radiance.mixins.vulkan_render_integration;
 
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.ICloseableBufferExt;
-import net.minecraft.client.util.BufferAllocator;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(BufferAllocator.CloseableBuffer.class)
+@Mixin(ByteBufferBuilder.Result.class)
 public abstract class BufferAllocatorCloseableBufferMixins implements ICloseableBufferExt {
 
     @Shadow
     @Final
-    private BufferAllocator field_52088;
+    private ByteBufferBuilder field_52088;
 
     @Override
-    public BufferAllocator radiance$getOwnerAllocator() {
+    public ByteBufferBuilder radiance$getOwnerAllocator() {
         return field_52088;
     }
 }

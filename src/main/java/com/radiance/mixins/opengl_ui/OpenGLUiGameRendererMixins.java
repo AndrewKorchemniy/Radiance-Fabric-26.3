@@ -1,23 +1,23 @@
 package com.radiance.mixins.opengl_ui;
 
 import com.llamalad7.mixinextras.sugar.Local;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
+import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.radiance.client.opengl_ui.OpenGLUiBridge;
 import com.radiance.client.proxy.vulkan.RendererProxy;
 import com.radiance.client.proxy.world.ChunkProxy;
 import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
-import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.render.BufferBuilderStorage;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.GameRenderer;
-import net.minecraft.client.render.LightmapTextureManager;
-import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.client.render.WorldRenderer;
-import net.minecraft.client.render.item.HeldItemRenderer;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.util.ObjectAllocator;
-import net.minecraft.client.util.Pool;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.Camera;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.ItemInHandRenderer;
+import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.RenderBuffers;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.spongepowered.asm.mixin.Final;
@@ -35,20 +35,20 @@ public abstract class OpenGLUiGameRendererMixins implements IGameRendererExt {
 
     @Shadow
     @Final
-    public HeldItemRenderer firstPersonRenderer;
+    public ItemInHandRenderer itemInHandRenderer;
 
     @Mutable
     @Final
     @Shadow
-    private LightmapTextureManager lightmapTextureManager;
+    private LightTexture lightTexture;
 
     @Final
     @Shadow
-    private Pool pool;
+    private CrossFrameResourcePool resourcePool;
 
     @Shadow
     @Final
-    private BufferBuilderStorage buffers;
+    private RenderBuffers renderBuffers;
 
     @Unique
     private Matrix4f viewMatrix;
@@ -56,14 +56,14 @@ public abstract class OpenGLUiGameRendererMixins implements IGameRendererExt {
     @Shadow
     protected abstract float getFov(Camera camera, float tickDelta, boolean changingFov);
 
-    @Inject(method = "render(Lnet/minecraft/client/render/RenderTickCounter;Z)V",
+    @Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
         at = @At(value = "HEAD"))
-    public void acquireOpenGLUiFrameContext(RenderTickCounter renderTickCounter, boolean tick,
+    public void acquireOpenGLUiFrameContext(DeltaTracker renderTickCounter, boolean tick,
         CallbackInfo ci) {
         RendererProxy.acquireContext();
     }
 
-    @Redirect(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V",
+    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "INVOKE",
             target = "Lorg/joml/Matrix4f;mul(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
             remap = false))
@@ -71,32 +71,30 @@ public abstract class OpenGLUiGameRendererMixins implements IGameRendererExt {
         return instance;
     }
 
-    @Redirect(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V",
+    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "INVOKE",
             target =
-                "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/ObjectAllocator;"
-                    + "Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;"
-                    + "Lnet/minecraft/client/render/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"))
-    public void performBTimesV(WorldRenderer instance,
-        ObjectAllocator allocator,
-        RenderTickCounter tickCounter,
+                "Lnet/minecraft/client/renderer/LevelRenderer;renderLevel(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lnet/minecraft/client/DeltaTracker;ZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"))
+    public void performBTimesV(LevelRenderer instance,
+        GraphicsResourceAllocator allocator,
+        DeltaTracker tickCounter,
         boolean renderBlockOutline,
         Camera camera,
         GameRenderer gameRenderer,
         Matrix4f viewMatrix,
         Matrix4f projectionMatrix,
         @Local boolean shouldRenderBlockOutline,
-        @Local MatrixStack matrixStack) {
-        Matrix4f b = new Matrix4f(matrixStack.peek().getPositionMatrix());
+        @Local PoseStack matrixStack) {
+        Matrix4f b = new Matrix4f(matrixStack.last().pose());
         this.viewMatrix = new Matrix4f(viewMatrix);
         viewMatrix = new Matrix4f(b.mul(viewMatrix));
-        instance.render(this.pool, tickCounter, shouldRenderBlockOutline, camera, gameRenderer,
+        instance.renderLevel(this.resourcePool, tickCounter, shouldRenderBlockOutline, camera, gameRenderer,
             viewMatrix, projectionMatrix);
     }
 
-    @Inject(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V",
+    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "HEAD"), cancellable = true)
-    public void validateOpenGLUiWorldFrameContext(RenderTickCounter renderTickCounter, CallbackInfo ci) {
+    public void validateOpenGLUiWorldFrameContext(DeltaTracker renderTickCounter, CallbackInfo ci) {
         if (OpenGLUiBridge.isResizePending() && !OpenGLUiBridge.hasActiveFrame()) {
             ci.cancel();
             return;
@@ -108,21 +106,21 @@ public abstract class OpenGLUiGameRendererMixins implements IGameRendererExt {
         }
     }
 
-    @Inject(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V",
+    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "TAIL"))
-    public void buildEntities(RenderTickCounter renderTickCounter, CallbackInfo ci) {
+    public void buildEntities(DeltaTracker renderTickCounter, CallbackInfo ci) {
         EntityProxy.build();
         ChunkProxy.waitImportantChunkRebuild();
         OpenGLUiBridge.prepareFrame();
     }
 
-    @Redirect(method = "renderWorld(Lnet/minecraft/client/render/RenderTickCounter;)V",
+    @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/gl/Framebuffer;beginWrite(Z)V"))
-    public void cancelWorldFramebufferBeginWrite(Framebuffer instance, boolean setViewport) {
+            target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
+    public void cancelWorldFramebufferBeginWrite(RenderTarget instance, boolean setViewport) {
     }
 
-    @Inject(method = "renderHand(Lnet/minecraft/client/render/Camera;FLorg/joml/Matrix4f;)V",
+    @Inject(method = "renderItemInHand(Lnet/minecraft/client/Camera;FLorg/joml/Matrix4f;)V",
         at = @At(value = "HEAD"), cancellable = true)
     public void redirectRenderHand(Camera camera, float tickDelta, Matrix4f matrix4f,
         CallbackInfo ci) {
@@ -132,25 +130,24 @@ public abstract class OpenGLUiGameRendererMixins implements IGameRendererExt {
             float handProjectionScale =
                 (float) (Math.tan(Math.toRadians(worldFov * 0.5F))
                     / Math.tan(Math.toRadians(handFov * 0.5F)));
-            EntityProxy.queueHandRebuild(buffers, tickDelta, firstPersonRenderer,
+            EntityProxy.queueHandRebuild(renderBuffers, tickDelta, itemInHandRenderer,
                 handProjectionScale);
         }
         ci.cancel();
     }
 
-    @Redirect(method = "render(Lnet/minecraft/client/render/RenderTickCounter;Z)V",
+    @Redirect(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
         at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/gl/Framebuffer;beginWrite(Z)V"))
-    public void bindOpenGLUiFramebuffer(Framebuffer instance, boolean setViewport) {
+            target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
+    public void bindOpenGLUiFramebuffer(RenderTarget instance, boolean setViewport) {
         OpenGLUiBridge.compositePreparedWorld(instance, setViewport);
     }
 
-    @Redirect(method = "updateWorldIcon(Ljava/nio/file/Path;)V",
+    @Redirect(method = "takeAutoScreenshot(Ljava/nio/file/Path;)V",
         at = @At(value = "INVOKE",
             target =
-                "Lnet/minecraft/client/util/ScreenshotRecorder;takeScreenshot(Lnet/minecraft/client/gl/Framebuffer;)"
-                    + "Lnet/minecraft/client/texture/NativeImage;"))
-    public NativeImage redirectScreenshot(Framebuffer framebuffer) {
+                "Lnet/minecraft/client/Screenshot;takeScreenshot(Lcom/mojang/blaze3d/pipeline/RenderTarget;)Lcom/mojang/blaze3d/platform/NativeImage;"))
+    public NativeImage redirectScreenshot(RenderTarget framebuffer) {
         return RendererProxy.takeScreenshotWithoutUI();
     }
 

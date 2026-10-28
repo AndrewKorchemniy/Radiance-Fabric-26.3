@@ -2,9 +2,9 @@ package com.radiance.mixins.vanilla_resource_tracker;
 
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.ISpriteContentsExt;
+import net.minecraft.client.renderer.texture.SpriteContents;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.texture.TextureTracker.TextureTarget;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.SpriteContents;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Final;
@@ -15,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(SpriteContents.class)
 public class SpriteContentsMixins implements ISpriteContentsExt {
 
-    @Shadow @Final private NativeImage image;
+    @Shadow @Final private NativeImage originalImage;
     @Unique private volatile boolean radiance$hasAverageColor;
     @Unique private int radiance$averageColor;
 
@@ -38,9 +38,9 @@ public class SpriteContentsMixins implements ISpriteContentsExt {
             synchronized (this) {
                 if (!radiance$hasAverageColor) {
                     long red = 0, green = 0, blue = 0, weight = 0;
-                    for (int y = 0; y < image.getHeight(); y++) {
-                        for (int x = 0; x < image.getWidth(); x++) {
-                            int color = image.getColorArgb(x, y);
+                    for (int y = 0; y < originalImage.getHeight(); y++) {
+                        for (int x = 0; x < originalImage.getWidth(); x++) {
+                            int color = originalImage.getPixel(x, y);
                             int alpha = color >>> 24;
                             red += ((color >>> 16) & 255) * alpha;
                             green += ((color >>> 8) & 255) * alpha;
@@ -48,7 +48,7 @@ public class SpriteContentsMixins implements ISpriteContentsExt {
                             weight += alpha;
                         }
                     }
-                    int alpha = (int) (weight / ((long) image.getWidth() * image.getHeight()));
+                    int alpha = (int) (weight / ((long) originalImage.getWidth() * originalImage.getHeight()));
                     radiance$averageColor = weight == 0 ? 0 : (alpha << 24)
                         | (int) (red / weight) | ((int) (green / weight) << 8)
                         | ((int) (blue / weight) << 16);
@@ -59,9 +59,9 @@ public class SpriteContentsMixins implements ISpriteContentsExt {
         return radiance$averageColor;
     }
 
-    @Redirect(method = "upload(IIII[Lnet/minecraft/client/texture/NativeImage;)V",
+    @Redirect(method = "upload(IIII[Lcom/mojang/blaze3d/platform/NativeImage;)V",
         at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/texture/NativeImage;upload(IIIIIIIZ)V"))
+            target = "Lcom/mojang/blaze3d/platform/NativeImage;upload(IIIIIIIZ)V"))
     public void setImageTargetIDBeforeUpload(NativeImage image, int level,
         int offsetX, int offsetY, int unpackSkipPixels, int unpackSkipRows,
         int width, int height, boolean blur) {

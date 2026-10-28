@@ -12,20 +12,20 @@ import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_POST_BASE;
 import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_TEXTURE_ID;
 import static com.radiance.client.vertex.PBRVertexFormatElements.PBR_TEXTURE_UV;
 
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.vertex.VertexFormatElement;
 import java.nio.ByteOrder;
 import java.util.stream.Collectors;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.BuiltBuffer;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.RenderPhase;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.render.VertexFormatElement;
-import net.minecraft.client.texture.MissingSprite;
-import net.minecraft.client.util.BufferAllocator;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Direction;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.RenderStateShard;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
+import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -57,9 +57,9 @@ public class PBRVertexConsumer implements VertexConsumer {
     private static final int POST_TEXT_MODE_INTENSITY_POLYGON_OFFSET = 7;
     private static final int POST_TEXT_MODE_RGBA_POLYGON_OFFSET = 8;
 
-    private final BufferAllocator allocator;
+    private final ByteBufferBuilder allocator;
     private final VertexFormat format;
-    private final VertexFormat.DrawMode drawMode;
+    private final VertexFormat.Mode drawMode;
 
     private final int vertexSizeByte;
     private final int writableMask;
@@ -78,47 +78,47 @@ public class PBRVertexConsumer implements VertexConsumer {
     private int coordinate = 0;
     private boolean normalOffset = false;
 
-    public PBRVertexConsumer(BufferAllocator allocator, RenderLayer renderLayer) {
-        this(allocator, VertexFormat.DrawMode.QUADS, PBRVertexFormats.ENTITY_PBR_TRIANGLE, renderLayer);
+    public PBRVertexConsumer(ByteBufferBuilder allocator, RenderType renderLayer) {
+        this(allocator, VertexFormat.Mode.QUADS, PBRVertexFormats.ENTITY_PBR_TRIANGLE, renderLayer);
     }
 
-    public static PBRVertexConsumer chunk(BufferAllocator allocator, RenderLayer renderLayer) {
-        return new PBRVertexConsumer(allocator, VertexFormat.DrawMode.QUADS,
+    public static PBRVertexConsumer chunk(ByteBufferBuilder allocator, RenderType renderLayer) {
+        return new PBRVertexConsumer(allocator, VertexFormat.Mode.QUADS,
             PBRVertexFormats.CHUNK_PBR_TRIANGLE, renderLayer);
     }
 
-    private PBRVertexConsumer(BufferAllocator allocator, VertexFormat.DrawMode drawMode,
-        VertexFormat format, RenderLayer renderLayer) {
+    private PBRVertexConsumer(ByteBufferBuilder allocator, VertexFormat.Mode drawMode,
+        VertexFormat format, RenderType renderLayer) {
         this.allocator = allocator;
         this.drawMode = drawMode;
         this.format = format;
 
-        this.vertexSizeByte = format.getVertexSizeByte();
-        this.writableMask = format.getRequiredMask() & ~PBR_POS.getBit();
+        this.vertexSizeByte = format.getVertexSize();
+        this.writableMask = format.getElementsMask() & ~PBR_POS.mask();
         this.requiredMask = 0;
-        this.offsetsByElementId = format.getOffsetsByElementId();
+        this.offsetsByElementId = format.getOffsetsByElement();
 
         if (this.vertexSizeByte != 64 && this.vertexSizeByte != 40) {
             throw new IllegalStateException(
                 "PBR vertex stride must be 64 or 40, got " + this.vertexSizeByte);
         }
-        if (!format.has(PBR_POS)) {
+        if (!format.contains(PBR_POS)) {
             throw new IllegalArgumentException("PBR format must contain POSITION element");
         }
 
-        if (renderLayer instanceof RenderLayer.MultiPhase) {
-            Identifier
+        if (renderLayer instanceof RenderType.CompositeRenderType) {
+            ResourceLocation
                 identifier =
-                ((RenderLayer.MultiPhase) renderLayer).phases.texture.getId()
-                    .orElse(MissingSprite.getMissingSpriteId());
+                ((RenderType.CompositeRenderType) renderLayer).state.textureState.cutoutTexture()
+                    .orElse(MissingTextureAtlasSprite.getLocation());
             textureID =
-                MinecraftClient.getInstance()
+                Minecraft.getInstance()
                     .getTextureManager()
                     .getTexture(identifier)
-                    .getGlId();
+                    .getId();
         }
         this.alphaMode = getAlphaMode(renderLayer);
-        this.textMaterial = renderLayer instanceof RenderLayer.MultiPhase multiPhase
+        this.textMaterial = renderLayer instanceof RenderType.CompositeRenderType multiPhase
             && getPostTextMode(multiPhase.name) != ALPHA_MODE_OPAQUE;
     }
 
@@ -229,8 +229,8 @@ public class PBRVertexConsumer implements VertexConsumer {
         return packSnorm16(x) | (packSnorm16(y) << 16);
     }
 
-    private static int getAlphaMode(RenderLayer renderLayer) {
-        if (!(renderLayer instanceof RenderLayer.MultiPhase multiPhase)) {
+    private static int getAlphaMode(RenderType renderLayer) {
+        if (!(renderLayer instanceof RenderType.CompositeRenderType multiPhase)) {
             return ALPHA_MODE_OPAQUE;
         }
 
@@ -247,7 +247,7 @@ public class PBRVertexConsumer implements VertexConsumer {
             return ALPHA_MODE_CUTOUT;
         }
 
-        if (RenderPhase.NO_TRANSPARENCY.equals(multiPhase.phases.transparency)) {
+        if (RenderStateShard.NO_TRANSPARENCY.equals(multiPhase.state.transparencyState)) {
             return ALPHA_MODE_CUTOUT;
         }
 
@@ -296,17 +296,17 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Nullable
-    public BuiltBuffer endNullable() {
+    public MeshData endNullable() {
         ensureBuilding();
         endVertex();
-        BuiltBuffer built = build();
+        MeshData built = build();
         building = false;
         vertexPointer = -1L;
         return built;
     }
 
-    public BuiltBuffer end() {
-        BuiltBuffer built = endNullable();
+    public MeshData end() {
+        MeshData built = endNullable();
         if (built == null) {
             throw new IllegalStateException("PBRBufferBuilder was empty");
         }
@@ -314,20 +314,20 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Nullable
-    private BuiltBuffer build() {
+    private MeshData build() {
         if (vertexCount == 0) {
             return null;
         }
 
-        BufferAllocator.CloseableBuffer buf = allocator.getAllocated();
+        ByteBufferBuilder.Result buf = allocator.build();
         if (buf == null) {
             return null;
         }
 
-        int indexCount = drawMode.getIndexCount(vertexCount);
-        VertexFormat.IndexType indexType = VertexFormat.IndexType.smallestFor(vertexCount);
-        return new BuiltBuffer(buf,
-            new BuiltBuffer.DrawParameters(format, vertexCount, indexCount, drawMode, indexType));
+        int indexCount = drawMode.indexCount(vertexCount);
+        VertexFormat.IndexType indexType = VertexFormat.IndexType.least(vertexCount);
+        return new MeshData(buf,
+            new MeshData.DrawState(format, vertexCount, indexCount, drawMode, indexType));
     }
 
     private long beginVertex() {
@@ -335,7 +335,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         endVertex();
 
         vertexCount++;
-        long ptr = allocator.allocate(vertexSizeByte);
+        long ptr = allocator.reserve(vertexSizeByte);
         vertexPointer = ptr;
         MemoryUtil.memSet(ptr, 0, vertexSizeByte);
 
@@ -369,7 +369,7 @@ public class PBRVertexConsumer implements VertexConsumer {
         endVertex();
 
         vertexCount++;
-        long ptr = allocator.allocate(vertexSizeByte);
+        long ptr = allocator.reserve(vertexSizeByte);
         vertexPointer = ptr;
         MemoryUtil.memSet(ptr, 0, vertexSizeByte);
 
@@ -407,7 +407,7 @@ public class PBRVertexConsumer implements VertexConsumer {
 
     private long beginElement(VertexFormatElement element) {
         int mask = currentMask;
-        int bit = element.getBit();
+        int bit = element.mask();
         if ((mask & bit) == 0) {
             return -1L;
         }
@@ -462,15 +462,15 @@ public class PBRVertexConsumer implements VertexConsumer {
         if (missing != 0) {
             String
                 s =
-                VertexFormatElement.streamFromMask(currentMask)
-                    .map(format::getName)
+                VertexFormatElement.elementsFromMask(currentMask)
+                    .map(format::getElementName)
                     .collect(Collectors.joining(", "));
             throw new IllegalStateException("Missing elements in vertex: " + s);
         }
     }
 
     @Override
-    public VertexConsumer vertex(float x, float y, float z) {
+    public VertexConsumer addVertex(float x, float y, float z) {
         long base = beginVertex();
         currentMask = writableMask;
 
@@ -511,7 +511,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer color(int red, int green, int blue, int alpha) {
+    public VertexConsumer setColor(int red, int green, int blue, int alpha) {
         setPackedFlag(USE_COLOR_LAYER_BIT);
 
         long p = beginElement(PBR_COLOR_LAYER);
@@ -522,7 +522,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer texture(float u, float v) {
+    public VertexConsumer setUv(float u, float v) {
         setPackedFlag(USE_TEXTURE_BIT);
 
         long p = beginElement(PBR_TEXTURE_UV);
@@ -534,7 +534,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer overlay(int u, int v) {
+    public VertexConsumer setUv1(int u, int v) {
         long p = beginElement(PBR_OVERLAY_UV);
         if (p != -1L) {
             setPackedFlag(USE_OVERLAY_BIT);
@@ -544,7 +544,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer light(int u, int v) {
+    public VertexConsumer setUv2(int u, int v) {
         setPackedFlag(USE_LIGHT_BIT);
 
         long p = beginElement(PBR_LIGHT_UV);
@@ -555,7 +555,7 @@ public class PBRVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer normal(float x, float y, float z) {
+    public VertexConsumer setNormal(float x, float y, float z) {
         setPackedFlag(USE_NORM_BIT);
 
         long p = beginElement(PBR_NORM);
@@ -597,10 +597,10 @@ public class PBRVertexConsumer implements VertexConsumer {
         return this;
     }
 
-    public static boolean canUseExternalPbr(BuiltBuffer builtBuffer) {
-        BuiltBuffer.DrawParameters drawParameters = builtBuffer.getDrawParameters();
+    public static boolean canUseExternalPbr(MeshData builtBuffer) {
+        MeshData.DrawState drawParameters = builtBuffer.drawState();
         return drawParameters.format() == PBRVertexFormats.ENTITY_PBR_TRIANGLE &&
-            drawParameters.mode() == VertexFormat.DrawMode.QUADS;
+            drawParameters.mode() == VertexFormat.Mode.QUADS;
     }
 
     public static class GLint implements VertexConsumer {
@@ -608,36 +608,36 @@ public class PBRVertexConsumer implements VertexConsumer {
         private final PBRVertexConsumer delegate;
         private int glintTextureID;
 
-        public GLint(PBRVertexConsumer delegate, RenderLayer glintRenderLayer) {
+        public GLint(PBRVertexConsumer delegate, RenderType glintRenderLayer) {
             this.delegate = delegate;
-            if (glintRenderLayer instanceof RenderLayer.MultiPhase) {
-                Identifier
+            if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
+                ResourceLocation
                     identifier =
-                    ((RenderLayer.MultiPhase) glintRenderLayer).phases.texture.getId()
-                        .orElse(MissingSprite.getMissingSpriteId());
+                    ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
+                        .orElse(MissingTextureAtlasSprite.getLocation());
                 glintTextureID =
-                    MinecraftClient.getInstance()
+                    Minecraft.getInstance()
                         .getTextureManager()
                         .getTexture(identifier)
-                        .getGlId();
+                        .getId();
             }
         }
 
         @Override
-        public VertexConsumer vertex(float x, float y, float z) {
+        public VertexConsumer addVertex(float x, float y, float z) {
             delegate.vertex(x, y, z, this.glintTextureID);
             return this;
         }
 
         @Override
-        public VertexConsumer color(int red, int green, int blue, int alpha) {
-            delegate.color(red, green, blue, alpha);
+        public VertexConsumer setColor(int red, int green, int blue, int alpha) {
+            delegate.setColor(red, green, blue, alpha);
             return this;
         }
 
         @Override
-        public VertexConsumer texture(float u, float v) {
-            delegate.texture(u, v);
+        public VertexConsumer setUv(float u, float v) {
+            delegate.setUv(u, v);
 
             long p = delegate.beginElement(PBR_GLINT_UV);
             if (p != -1L) {
@@ -648,20 +648,20 @@ public class PBRVertexConsumer implements VertexConsumer {
         }
 
         @Override
-        public VertexConsumer overlay(int u, int v) {
-            delegate.overlay(u, v);
+        public VertexConsumer setUv1(int u, int v) {
+            delegate.setUv1(u, v);
             return this;
         }
 
         @Override
-        public VertexConsumer light(int u, int v) {
-            delegate.light(u, v);
+        public VertexConsumer setUv2(int u, int v) {
+            delegate.setUv2(u, v);
             return this;
         }
 
         @Override
-        public VertexConsumer normal(float x, float y, float z) {
-            delegate.normal(x, y, z);
+        public VertexConsumer setNormal(float x, float y, float z) {
+            delegate.setNormal(x, y, z);
             return this;
         }
     }
@@ -679,28 +679,28 @@ public class PBRVertexConsumer implements VertexConsumer {
         private float y;
         private float z;
 
-        public GLintOverlay(PBRVertexConsumer delegate, RenderLayer glintRenderLayer,
-            MatrixStack.Entry matrix, float textureScale) {
+        public GLintOverlay(PBRVertexConsumer delegate, RenderType glintRenderLayer,
+            PoseStack.Pose matrix, float textureScale) {
             this.delegate = delegate;
-            if (glintRenderLayer instanceof RenderLayer.MultiPhase) {
-                Identifier
+            if (glintRenderLayer instanceof RenderType.CompositeRenderType) {
+                ResourceLocation
                     identifier =
-                    ((RenderLayer.MultiPhase) glintRenderLayer).phases.texture.getId()
-                        .orElse(MissingSprite.getMissingSpriteId());
+                    ((RenderType.CompositeRenderType) glintRenderLayer).state.textureState.cutoutTexture()
+                        .orElse(MissingTextureAtlasSprite.getLocation());
                 glintTextureID =
-                    MinecraftClient.getInstance()
+                    Minecraft.getInstance()
                         .getTextureManager()
                         .getTexture(identifier)
-                        .getGlId();
+                        .getId();
             }
 
-            this.inverseTextureMatrix = new Matrix4f(matrix.getPositionMatrix()).invert();
-            this.inverseNormalMatrix = new Matrix3f(matrix.getNormalMatrix()).invert();
+            this.inverseTextureMatrix = new Matrix4f(matrix.pose()).invert();
+            this.inverseNormalMatrix = new Matrix3f(matrix.normal()).invert();
             this.textureScale = textureScale;
         }
 
         @Override
-        public VertexConsumer vertex(float x, float y, float z) {
+        public VertexConsumer addVertex(float x, float y, float z) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -709,39 +709,39 @@ public class PBRVertexConsumer implements VertexConsumer {
         }
 
         @Override
-        public VertexConsumer color(int red, int green, int blue, int alpha) {
-            delegate.color(red, green, blue, alpha);
+        public VertexConsumer setColor(int red, int green, int blue, int alpha) {
+            delegate.setColor(red, green, blue, alpha);
             return this;
         }
 
         @Override
-        public VertexConsumer texture(float u, float v) {
-            delegate.texture(u, v);
+        public VertexConsumer setUv(float u, float v) {
+            delegate.setUv(u, v);
             return this;
         }
 
         @Override
-        public VertexConsumer overlay(int u, int v) {
-            delegate.overlay(u, v);
+        public VertexConsumer setUv1(int u, int v) {
+            delegate.setUv1(u, v);
             return this;
         }
 
         @Override
-        public VertexConsumer light(int u, int v) {
-            delegate.light(u, v);
+        public VertexConsumer setUv2(int u, int v) {
+            delegate.setUv2(u, v);
             return this;
         }
 
         @Override
-        public VertexConsumer normal(float x, float y, float z) {
-            delegate.normal(x, y, z);
+        public VertexConsumer setNormal(float x, float y, float z) {
+            delegate.setNormal(x, y, z);
             Vector3f vector3f = this.inverseNormalMatrix.transform(x, y, z, this.pos);
-            Direction direction = Direction.getFacing(vector3f.x(), vector3f.y(), vector3f.z());
+            Direction direction = Direction.getApproximateNearest(vector3f.x(), vector3f.y(), vector3f.z());
             Vector3f vector3f2 = this.inverseTextureMatrix.transformPosition(this.x, this.y, this.z,
                 this.normal);
             vector3f2.rotateY((float) Math.PI);
             vector3f2.rotateX((float) (-Math.PI / 2));
-            vector3f2.rotate(direction.getRotationQuaternion());
+            vector3f2.rotate(direction.getRotation());
 
             long p = delegate.beginElement(PBR_GLINT_UV);
             if (p != -1L) {

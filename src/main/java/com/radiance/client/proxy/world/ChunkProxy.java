@@ -1,13 +1,15 @@
 package com.radiance.client.proxy.world;
 
-import static net.minecraft.client.render.VertexFormat.DrawMode.QUADS;
+import static com.mojang.blaze3d.vertex.VertexFormat.Mode.QUADS;
 import static org.lwjgl.system.MemoryUtil.memAddress;
+
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.VertexSorting;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.vista.ChunkTerrainBuilder;
 import com.radiance.client.vista.Vista;
 import com.radiance.client.vista.VistaTerrain;
 import com.radiance.client.option.Options;
-import net.minecraft.client.render.BuiltBuffer;
 import com.radiance.client.vertex.TransferredBuildBuffer;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IChunkBuilderBuiltChunkExt;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IChunkBuilderExt;
@@ -23,51 +25,50 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.BuiltChunkStorage;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.chunk.BlockBufferAllocatorStorage;
-import net.minecraft.client.render.chunk.ChunkBuilder;
-import net.minecraft.client.render.chunk.ChunkOcclusionData;
-import net.minecraft.client.render.chunk.ChunkRendererRegion;
-import net.minecraft.client.render.chunk.ChunkRendererRegionBuilder;
-import net.minecraft.client.texture.MissingSprite;
-import net.minecraft.client.texture.TextureManager;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
 import org.lwjgl.system.MemoryUtil;
 import com.radiance.client.profiler.Profiler;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.world.chunk.WorldChunk;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.client.render.chunk.SectionBuilder;
-import com.mojang.blaze3d.systems.VertexSorter;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.SectionBufferBuilderPack;
+import net.minecraft.client.renderer.ViewArea;
+import net.minecraft.client.renderer.chunk.RenderChunkRegion;
+import net.minecraft.client.renderer.chunk.RenderRegionCache;
+import net.minecraft.client.renderer.chunk.SectionCompiler;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
+import net.minecraft.client.renderer.chunk.VisibilitySet;
+import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
+import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.phys.Vec3;
 
 public class ChunkProxy {
 
-    public static final ChunkBuilder.ChunkData PROCESSED = new ChunkBuilder.ChunkData() {
+    public static final SectionRenderDispatcher.CompiledSection PROCESSED = new SectionRenderDispatcher.CompiledSection() {
         @Override
-        public boolean isVisibleThrough(Direction from, Direction to) {
+        public boolean facesCanSeeEachother(Direction from, Direction to) {
             return false;
         }
     };
-    public static final ChunkBuilder.ChunkData TERRAIN_EMPTY = new ChunkBuilder.ChunkData() {
+    public static final SectionRenderDispatcher.CompiledSection TERRAIN_EMPTY = new SectionRenderDispatcher.CompiledSection() {
         @Override
-        public boolean isVisibleThrough(Direction from, Direction to) {
+        public boolean facesCanSeeEachother(Direction from, Direction to) {
             return true;
         }
     };
-    private static final Map<Integer, ChunkBuilder.BuiltChunk> rebuildQueue = new ConcurrentHashMap<>();
+    private static final Map<Integer, SectionRenderDispatcher.RenderSection> rebuildQueue = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Field> visibleChunkFieldCache = new ConcurrentHashMap<>();
-    private static final ConcurrentLinkedQueue<ChunkBuilder.BuiltChunk> backgroundRebuildQueue =
+    private static final ConcurrentLinkedQueue<SectionRenderDispatcher.RenderSection> backgroundRebuildQueue =
         new ConcurrentLinkedQueue<>();
     private static final java.util.Set<Integer> forcedRebuildIndices = ConcurrentHashMap.newKeySet();
     private static final java.util.Set<Integer> backgroundRebuildIndices = ConcurrentHashMap.newKeySet();
@@ -82,7 +83,7 @@ public class ChunkProxy {
     private static long nextChunkGeneration;
     private static final ThreadLocal<IntOpenHashSet> candidateIndexScratch =
         ThreadLocal.withInitial(() -> new IntOpenHashSet(1024));
-    private static BuiltChunkStorage currentStorage = null;
+    private static ViewArea currentStorage = null;
     private static int storageSizeX;
     private static int storageSizeZ;
     private static boolean pendingRebuildAll = false;
@@ -116,9 +117,9 @@ public class ChunkProxy {
             return newChunkRebuildThread(r, "Radiance Important Chunk Rebuild",
                 Thread.NORM_PRIORITY);
         });
-    private static final ThreadLocal<BlockBufferAllocatorStorage>
+    private static final ThreadLocal<SectionBufferBuilderPack>
         blockBufferAllocatorStorage =
-        ThreadLocal.withInitial(BlockBufferAllocatorStorage::new);
+        ThreadLocal.withInitial(SectionBufferBuilderPack::new);
     public static int builtChunkCount = 0;
     private static ExecutorService backgroundChunkRebuildExecutor = Executors.newFixedThreadPool(
         normalChunkRebuildThreadCount, r -> {
@@ -147,13 +148,13 @@ public class ChunkProxy {
         }
     }
 
-    public static void updateSectionPos(ChunkSectionPos sectionPos) {
+    public static void updateSectionPos(SectionPos sectionPos) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.ChunkProxy.updateSectionPos");
         }
         try {
-            updateSectionPosNative(sectionPos.getSectionX(), sectionPos.getSectionY(),
-                sectionPos.getSectionZ());
+            updateSectionPosNative(sectionPos.x(), sectionPos.y(),
+                sectionPos.z());
         } finally {
             if (Profiler.ENABLED) {
                 Profiler.exit();
@@ -161,7 +162,7 @@ public class ChunkProxy {
         }
     }
 
-    public static void setStorage(BuiltChunkStorage storage) {
+    public static void setStorage(ViewArea storage) {
         currentStorage = storage;
         if (currentStorage != null && pendingRebuildAll) {
             pendingRebuildAll = false;
@@ -169,8 +170,8 @@ public class ChunkProxy {
         }
     }
 
-    public static List<ChunkBuilder.BuiltChunk> extractVisibleChunks(Iterable<?> chunkInfos) {
-        List<ChunkBuilder.BuiltChunk> visibleChunks = new ArrayList<>();
+    public static List<SectionRenderDispatcher.RenderSection> extractVisibleChunks(Iterable<?> chunkInfos) {
+        List<SectionRenderDispatcher.RenderSection> visibleChunks = new ArrayList<>();
         if (chunkInfos == null) {
             return visibleChunks;
         }
@@ -191,8 +192,8 @@ public class ChunkProxy {
             }
 
             try {
-                ChunkBuilder.BuiltChunk builtChunk =
-                    (ChunkBuilder.BuiltChunk) chunkField.get(chunkInfo);
+                SectionRenderDispatcher.RenderSection builtChunk =
+                    (SectionRenderDispatcher.RenderSection) chunkField.get(chunkInfo);
                 if (builtChunk != null) {
                     visibleChunks.add(builtChunk);
                 }
@@ -206,7 +207,7 @@ public class ChunkProxy {
     private static Field findVisibleChunkField(Class<?> infoClass) {
         for (Class<?> type = infoClass; type != null; type = type.getSuperclass()) {
             for (Field field : type.getDeclaredFields()) {
-                if (field.getType() != ChunkBuilder.BuiltChunk.class) {
+                if (field.getType() != SectionRenderDispatcher.RenderSection.class) {
                     continue;
                 }
                 field.setAccessible(true);
@@ -217,9 +218,9 @@ public class ChunkProxy {
     }
 
     private static int getChunkRebuildThreadCount() {
-        int expectedBufferTotal = RenderLayer.getBlockLayers()
+        int expectedBufferTotal = RenderType.chunkBufferLayers()
             .stream()
-            .mapToInt(RenderLayer::getExpectedBufferSize)
+            .mapToInt(RenderType::bufferSize)
             .sum();
         int memoryLimited = Math.max(1,
             (int) (Runtime.getRuntime().maxMemory() * 0.3) / (expectedBufferTotal * 4) - 1);
@@ -229,9 +230,9 @@ public class ChunkProxy {
     }
 
     public static AutoCloseable scopedBlockBufferAllocatorStorage() {
-        final BlockBufferAllocatorStorage storage = blockBufferAllocatorStorage.get();
-        storage.reset();
-        return storage::clear;
+        final SectionBufferBuilderPack storage = blockBufferAllocatorStorage.get();
+        storage.discardAll();
+        return storage::clearAll;
     }
 
     public static void clear() {
@@ -282,7 +283,7 @@ public class ChunkProxy {
         }
     }
 
-    public static void enqueueRebuild(ChunkBuilder.BuiltChunk chunk) {
+    public static void enqueueRebuild(SectionRenderDispatcher.RenderSection chunk) {
         rebuildQueue.put(chunk.index, chunk);
         if (backgroundRebuildIndices.add(chunk.index)) {
             backgroundRebuildQueue.offer(chunk);
@@ -294,7 +295,7 @@ public class ChunkProxy {
             Profiler.enter("java.ChunkProxy.rebuildAll");
         }
         try {
-            if (currentStorage == null || currentStorage.chunks == null) {
+            if (currentStorage == null || currentStorage.sections == null) {
                 pendingRebuildAll = true;
                 return;
             }
@@ -307,22 +308,22 @@ public class ChunkProxy {
         }
     }
 
-    private static void queueRebuildAll(BuiltChunkStorage storage) {
+    private static void queueRebuildAll(ViewArea storage) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.ChunkProxy.queueRebuildAll");
         }
         try {
-            if (storage == null || storage.chunks == null) {
+            if (storage == null || storage.sections == null) {
                 pendingRebuildAll = true;
                 return;
             }
 
-            for (ChunkBuilder.BuiltChunk builtChunk : storage.chunks) {
+            for (SectionRenderDispatcher.RenderSection builtChunk : storage.sections) {
                 if (builtChunk == null) {
                     continue;
                 }
                 forcedRebuildIndices.add(builtChunk.index);
-                builtChunk.scheduleRebuild(true);
+                builtChunk.setDirty(true);
                 enqueueRebuild(builtChunk);
             }
         } finally {
@@ -336,13 +337,13 @@ public class ChunkProxy {
         rebuild(camera, null, null);
     }
 
-    public static void rebuild(Camera camera, List<ChunkBuilder.BuiltChunk> visibleChunks,
-        List<ChunkBuilder.BuiltChunk> nearbyChunks) {
+    public static void rebuild(Camera camera, List<SectionRenderDispatcher.RenderSection> visibleChunks,
+        List<SectionRenderDispatcher.RenderSection> nearbyChunks) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.ChunkProxy.rebuild");
         }
         try {
-            BlockPos blockPos = camera.getBlockPos();
+            BlockPos blockPos = camera.getBlockPosition();
             boolean completeColumns = Vista.distanceBlocks() > 0;
             if (completeColumns) {
                 completeEmptySections();
@@ -383,7 +384,7 @@ public class ChunkProxy {
             List<RebuildCandidate> foregroundCandidates = new ArrayList<>(candidateLimit);
             List<RebuildCandidate> rayTracingNearbyCandidates = new ArrayList<>(candidateLimit);
             List<RebuildCandidate> backgroundCandidates = new ArrayList<>(1);
-            List<ChunkBuilder.BuiltChunk> polledBackgroundChunks = new ArrayList<>();
+            List<SectionRenderDispatcher.RenderSection> polledBackgroundChunks = new ArrayList<>();
             IntOpenHashSet candidateIndices = candidateIndexScratch.get();
             candidateIndices.clear();
             RebuildScanStats foregroundScanStats = new RebuildScanStats();
@@ -402,14 +403,14 @@ public class ChunkProxy {
                         submissionStats, true, Integer.MAX_VALUE);
                 } else {
                     if (visibleChunks != null) {
-                        for (ChunkBuilder.BuiltChunk builtChunk : visibleChunks) {
+                        for (SectionRenderDispatcher.RenderSection builtChunk : visibleChunks) {
                             visibleScannedCount++;
                             collectRebuildCandidate(builtChunk, blockPos, foregroundCandidates,
                                 candidateLimit, candidateIndices, foregroundScanStats);
                         }
                     }
                     if (nearbyChunks != null) {
-                        for (ChunkBuilder.BuiltChunk builtChunk : nearbyChunks) {
+                        for (SectionRenderDispatcher.RenderSection builtChunk : nearbyChunks) {
                             nearbyScannedCount++;
                             collectRebuildCandidate(builtChunk, blockPos, foregroundCandidates,
                                 candidateLimit, candidateIndices, foregroundScanStats);
@@ -437,7 +438,7 @@ public class ChunkProxy {
                 if (backgroundCandidateLimit > 0) {
                     for (int i = 0; i < BACKGROUND_REBUILD_SCAN_LIMIT_PER_FRAME
                         && backgroundCandidates.size() < backgroundCandidateLimit; i++) {
-                        ChunkBuilder.BuiltChunk builtChunk = backgroundRebuildQueue.poll();
+                        SectionRenderDispatcher.RenderSection builtChunk = backgroundRebuildQueue.poll();
                         if (builtChunk == null) {
                             break;
                         }
@@ -478,9 +479,9 @@ public class ChunkProxy {
                     + Math.max(0, rayTracingNearbyScanStats.eligibleCount - rayTracingNearbyCandidates.size())
                     + Math.max(0, backgroundScanStats.eligibleCount - backgroundCandidates.size())
                     + submissionStats.budgetSkippedCount;
-                for (ChunkBuilder.BuiltChunk builtChunk : polledBackgroundChunks) {
+                for (SectionRenderDispatcher.RenderSection builtChunk : polledBackgroundChunks) {
                     int chunkIndex = builtChunk.index;
-                    if (rebuildQueue.containsKey(chunkIndex) && builtChunk.needsRebuild()) {
+                    if (rebuildQueue.containsKey(chunkIndex) && builtChunk.isDirty()) {
                         enqueueBackgroundRebuild(builtChunk);
                     }
                 }
@@ -535,14 +536,14 @@ public class ChunkProxy {
         }
     }
 
-    private static void collectRebuildCandidate(ChunkBuilder.BuiltChunk builtChunk, BlockPos blockPos,
+    private static void collectRebuildCandidate(SectionRenderDispatcher.RenderSection builtChunk, BlockPos blockPos,
         List<RebuildCandidate> candidates, int candidateLimit, IntSet candidateIndices,
         RebuildScanStats stats) {
         collectRebuildCandidate(builtChunk, blockPos, candidates, candidateLimit, candidateIndices,
             stats, false);
     }
 
-    private static void collectRebuildCandidate(ChunkBuilder.BuiltChunk builtChunk, BlockPos blockPos,
+    private static void collectRebuildCandidate(SectionRenderDispatcher.RenderSection builtChunk, BlockPos blockPos,
         List<RebuildCandidate> candidates, int candidateLimit, IntSet candidateIndices,
         RebuildScanStats stats, boolean completeColumns) {
         if (builtChunk == null) {
@@ -556,7 +557,7 @@ public class ChunkProxy {
         }
 
         boolean forced = forcedRebuildIndices.contains(chunkIndex);
-        if (!builtChunk.needsRebuild()) {
+        if (!builtChunk.isDirty()) {
             rebuildQueue.remove(chunkIndex, builtChunk);
             forcedRebuildIndices.remove(chunkIndex);
             backgroundRebuildIndices.remove(chunkIndex);
@@ -579,7 +580,7 @@ public class ChunkProxy {
             stats.rankingRejectedCount++;
             return;
         }
-        if (!forced && !builtChunk.shouldBuild()) {
+        if (!forced && !builtChunk.hasAllNeighbors()) {
             stats.notReadyCount++;
             return;
         }
@@ -588,7 +589,7 @@ public class ChunkProxy {
             return;
         }
 
-        boolean isImportant = squaredDistanceToCamera < 768.0 || builtChunk.needsImportantRebuild();
+        boolean isImportant = squaredDistanceToCamera < 768.0 || builtChunk.isDirtyFromPlayer();
         stats.eligibleCount++;
         insertNearestCandidate(candidates, builtChunk, squaredDistanceToCamera,
             priorityDistance, isImportant, candidateLimit);
@@ -597,22 +598,22 @@ public class ChunkProxy {
     private static int collectVistaRebuildCandidates(BlockPos blockPos,
         List<RebuildCandidate> candidates, int candidateLimit, IntSet candidateIndices,
         RebuildScanStats stats) {
-        BuiltChunkStorage storage = currentStorage;
-        ClientWorld world = getStorageWorld(storage);
+        ViewArea storage = currentStorage;
+        ClientLevel world = getStorageWorld(storage);
         if (world == null || rebuildQueue.isEmpty()) {
             return 0;
         }
         if (Profiler.ENABLED) Profiler.enter("java.ChunkProxy.collectPendingVistaRebuilds");
         try {
             int scannedCount = 0;
-            for (ChunkBuilder.BuiltChunk builtChunk : rebuildQueue.values()) {
+            for (SectionRenderDispatcher.RenderSection builtChunk : rebuildQueue.values()) {
                 scannedCount++;
                 BlockPos origin = builtChunk.getOrigin();
-                if (world.isOutOfHeightLimit(origin)
-                    || storage.getRenderedChunk(origin) != builtChunk) {
+                if (world.isOutsideBuildHeight(origin)
+                    || storage.getRenderSectionAt(origin) != builtChunk) {
                     continue;
                 }
-                if (!builtChunk.needsRebuild()) {
+                if (!builtChunk.isDirty()) {
                     rebuildQueue.remove(builtChunk.index, builtChunk);
                     forcedRebuildIndices.remove(builtChunk.index);
                     backgroundRebuildIndices.remove(builtChunk.index);
@@ -631,15 +632,15 @@ public class ChunkProxy {
     private static int collectRayTracingNearbyRebuildCandidates(Camera camera, BlockPos blockPos,
         List<RebuildCandidate> candidates, int candidateLimit, IntSet candidateIndices,
         RebuildScanStats stats) {
-        if (currentStorage == null || currentStorage.chunks == null) {
+        if (currentStorage == null || currentStorage.sections == null) {
             return 0;
         }
 
-        ChunkSectionPos cameraSectionPos = ChunkSectionPos.from(camera.getBlockPos());
-        BlockPos.Mutable sampleBlockPos = new BlockPos.Mutable();
-        int centerSectionX = cameraSectionPos.getSectionX();
-        int centerSectionY = cameraSectionPos.getSectionY();
-        int centerSectionZ = cameraSectionPos.getSectionZ();
+        SectionPos cameraSectionPos = SectionPos.of(camera.getBlockPosition());
+        BlockPos.MutableBlockPos sampleBlockPos = new BlockPos.MutableBlockPos();
+        int centerSectionX = cameraSectionPos.x();
+        int centerSectionY = cameraSectionPos.y();
+        int centerSectionZ = cameraSectionPos.z();
         int minSectionY = Math.max(getStorageBottomSectionCoord(currentStorage),
             centerSectionY - RAY_TRACING_NEAR_VERTICAL_RADIUS_SECTIONS);
         int maxSectionY = Math.min(getStorageTopSectionCoord(currentStorage),
@@ -651,10 +652,10 @@ public class ChunkProxy {
             for (int sectionZ = centerSectionZ - RAY_TRACING_NEAR_HORIZONTAL_RADIUS_SECTIONS;
                 sectionZ <= centerSectionZ + RAY_TRACING_NEAR_HORIZONTAL_RADIUS_SECTIONS; sectionZ++) {
                 for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++) {
-                    sampleBlockPos.set(ChunkSectionPos.getBlockCoord(sectionX) + 8,
-                        ChunkSectionPos.getBlockCoord(sectionY) + 8,
-                        ChunkSectionPos.getBlockCoord(sectionZ) + 8);
-                    ChunkBuilder.BuiltChunk builtChunk = currentStorage.getRenderedChunk(sampleBlockPos);
+                    sampleBlockPos.set(SectionPos.sectionToBlockCoord(sectionX) + 8,
+                        SectionPos.sectionToBlockCoord(sectionY) + 8,
+                        SectionPos.sectionToBlockCoord(sectionZ) + 8);
+                    SectionRenderDispatcher.RenderSection builtChunk = currentStorage.getRenderSectionAt(sampleBlockPos);
                     if (builtChunk == null) {
                         continue;
                     }
@@ -668,7 +669,7 @@ public class ChunkProxy {
         return scannedCount;
     }
 
-    private static void enqueueBackgroundRebuild(ChunkBuilder.BuiltChunk chunk) {
+    private static void enqueueBackgroundRebuild(SectionRenderDispatcher.RenderSection chunk) {
         if (backgroundRebuildIndices.add(chunk.index)) {
             backgroundRebuildQueue.offer(chunk);
         }
@@ -676,12 +677,12 @@ public class ChunkProxy {
 
     private static void discardCompletedBackgroundRebuilds() {
         for (int i = 0; i < BACKGROUND_REBUILD_SCAN_LIMIT_PER_FRAME; i++) {
-            ChunkBuilder.BuiltChunk builtChunk = backgroundRebuildQueue.poll();
+            SectionRenderDispatcher.RenderSection builtChunk = backgroundRebuildQueue.poll();
             if (builtChunk == null) {
                 break;
             }
             if (backgroundRebuildIndices.contains(builtChunk.index)
-                && rebuildQueue.get(builtChunk.index) == builtChunk && builtChunk.needsRebuild()) {
+                && rebuildQueue.get(builtChunk.index) == builtChunk && builtChunk.isDirty()) {
                 backgroundRebuildQueue.offer(builtChunk);
             }
         }
@@ -850,7 +851,7 @@ public class ChunkProxy {
         if (!Profiler.ENABLED) {
             return;
         }
-        if (currentStorage == null || currentStorage.chunks == null) {
+        if (currentStorage == null || currentStorage.sections == null) {
             return;
         }
         nearbyCoverageFrameCounter++;
@@ -858,9 +859,9 @@ public class ChunkProxy {
             return;
         }
 
-        Vec3d cameraPos = camera.getPos();
-        BlockPos cameraBlockPos = camera.getBlockPos();
-        ChunkSectionPos cameraSectionPos = ChunkSectionPos.from(cameraBlockPos);
+        Vec3 cameraPos = camera.getPosition();
+        BlockPos cameraBlockPos = camera.getBlockPosition();
+        SectionPos cameraSectionPos = SectionPos.of(cameraBlockPos);
         long now = System.nanoTime();
         long sampleIntervalMillis =
             lastNearbyCoverageSampleNanos == 0L ? 0L
@@ -893,9 +894,9 @@ public class ChunkProxy {
         }
 
         Profiler.metric("java.chunk_nearby_coverage.sample_interval_ms", sampleIntervalMillis);
-        Profiler.metric("java.chunk_nearby_coverage.camera_section_x", cameraSectionPos.getSectionX());
-        Profiler.metric("java.chunk_nearby_coverage.camera_section_y", cameraSectionPos.getSectionY());
-        Profiler.metric("java.chunk_nearby_coverage.camera_section_z", cameraSectionPos.getSectionZ());
+        Profiler.metric("java.chunk_nearby_coverage.camera_section_x", cameraSectionPos.x());
+        Profiler.metric("java.chunk_nearby_coverage.camera_section_y", cameraSectionPos.y());
+        Profiler.metric("java.chunk_nearby_coverage.camera_section_z", cameraSectionPos.z());
         Profiler.metric("java.chunk_nearby_coverage.camera_horizontal_speed_milliblocks_per_second",
             cameraHorizontalSpeedMilliBlocksPerSecond);
         recordNearbyCoverageStats("java.chunk_nearby_coverage.inner", innerStats,
@@ -904,13 +905,13 @@ public class ChunkProxy {
             nearMissingStreakSamples);
     }
 
-    private static NearbyCoverageStats sampleNearbyCoverageRadius(BuiltChunkStorage storage,
-        Vec3d cameraPos, ChunkSectionPos cameraSectionPos, int radiusSections) {
+    private static NearbyCoverageStats sampleNearbyCoverageRadius(ViewArea storage,
+        Vec3 cameraPos, SectionPos cameraSectionPos, int radiusSections) {
         NearbyCoverageStats stats = new NearbyCoverageStats();
-        BlockPos.Mutable sampleBlockPos = new BlockPos.Mutable();
+        BlockPos.MutableBlockPos sampleBlockPos = new BlockPos.MutableBlockPos();
 
-        int centerSectionX = cameraSectionPos.getSectionX();
-        int centerSectionZ = cameraSectionPos.getSectionZ();
+        int centerSectionX = cameraSectionPos.x();
+        int centerSectionZ = cameraSectionPos.z();
 
         for (int sectionX = centerSectionX - radiusSections;
             sectionX <= centerSectionX + radiusSections; sectionX++) {
@@ -923,12 +924,12 @@ public class ChunkProxy {
         return stats;
     }
 
-    private static void sampleNearbyCoverageColumn(BuiltChunkStorage storage, Vec3d cameraPos,
-        BlockPos.Mutable sampleBlockPos, int sectionX, int sectionZ,
+    private static void sampleNearbyCoverageColumn(ViewArea storage, Vec3 cameraPos,
+        BlockPos.MutableBlockPos sampleBlockPos, int sectionX, int sectionZ,
         NearbyCoverageStats stats) {
         stats.sampledCount++;
-        int blockX = ChunkSectionPos.getBlockCoord(sectionX) + 8;
-        int blockZ = ChunkSectionPos.getBlockCoord(sectionZ) + 8;
+        int blockX = SectionPos.sectionToBlockCoord(sectionX) + 8;
+        int blockZ = SectionPos.sectionToBlockCoord(sectionZ) + 8;
         double distanceBlocks = Math.sqrt(squaredHorizontalDistance(blockX, blockZ,
             cameraPos.x, cameraPos.z));
         int minSectionY = getStorageBottomSectionCoord(storage);
@@ -939,13 +940,13 @@ public class ChunkProxy {
         boolean hasPendingRebuild = false;
         boolean hasInFlight = false;
         boolean hasNativeNotReady = false;
-        WorldChunk worldChunk = null;
-        ClientWorld world = null;
+        LevelChunk worldChunk = null;
+        ClientLevel world = null;
 
         for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++) {
-            int blockY = ChunkSectionPos.getBlockCoord(sectionY) + 8;
+            int blockY = SectionPos.sectionToBlockCoord(sectionY) + 8;
             sampleBlockPos.set(blockX, blockY, blockZ);
-            ChunkBuilder.BuiltChunk builtChunk = storage.getRenderedChunk(sampleBlockPos);
+            SectionRenderDispatcher.RenderSection builtChunk = storage.getRenderSectionAt(sampleBlockPos);
             if (builtChunk == null) {
                 stats.storageMissingCount++;
                 stats.recordNotDrawableDistance(distanceBlocks);
@@ -954,9 +955,9 @@ public class ChunkProxy {
 
             if (worldChunk == null) {
                 world = getChunkWorld(builtChunk);
-                int sourceChunkX = ChunkSectionPos.getSectionCoord(builtChunk.getOrigin().getX());
-                int sourceChunkZ = ChunkSectionPos.getSectionCoord(builtChunk.getOrigin().getZ());
-                if (world == null || !world.isChunkLoaded(sourceChunkX, sourceChunkZ)) {
+                int sourceChunkX = SectionPos.blockToSectionCoord(builtChunk.getOrigin().getX());
+                int sourceChunkZ = SectionPos.blockToSectionCoord(builtChunk.getOrigin().getZ());
+                if (world == null || !world.hasChunk(sourceChunkX, sourceChunkZ)) {
                     stats.sourceUnloadedCount++;
                     stats.recordNotDrawableDistance(distanceBlocks);
                     return;
@@ -995,17 +996,17 @@ public class ChunkProxy {
     }
 
     private static NearbyCoverageChunkState classifyNearbyCoverageChunk(
-        ChunkBuilder.BuiltChunk builtChunk, WorldChunk worldChunk, ClientWorld world,
+        SectionRenderDispatcher.RenderSection builtChunk, LevelChunk worldChunk, ClientLevel world,
         int sectionY) {
-        if (worldChunk.getSection(sectionY - world.getBottomSectionCoord()).isEmpty()) {
+        if (worldChunk.getSection(sectionY - world.getMinSectionY()).hasOnlyAir()) {
             return NearbyCoverageChunkState.READY_SOURCE_EMPTY;
         }
 
-        ChunkBuilder.ChunkData data = builtChunk.data.get();
+        SectionRenderDispatcher.CompiledSection data = builtChunk.compiled.get();
         if (inFlightRebuildIndices.contains(builtChunk.index)) {
             return NearbyCoverageChunkState.IN_FLIGHT;
         }
-        if (builtChunk.needsRebuild()) {
+        if (builtChunk.isDirty()) {
             return NearbyCoverageChunkState.PENDING_REBUILD;
         }
         if (data.isEmpty(null)) {
@@ -1017,15 +1018,15 @@ public class ChunkProxy {
         return NearbyCoverageChunkState.NATIVE_NOT_READY;
     }
 
-    private static ClientWorld getStorageWorld(BuiltChunkStorage storage) {
-        if (storage == null || storage.chunks == null) {
+    private static ClientLevel getStorageWorld(ViewArea storage) {
+        if (storage == null || storage.sections == null) {
             return null;
         }
-        for (ChunkBuilder.BuiltChunk builtChunk : storage.chunks) {
+        for (SectionRenderDispatcher.RenderSection builtChunk : storage.sections) {
             if (builtChunk == null) {
                 continue;
             }
-            ClientWorld world = getChunkWorld(builtChunk);
+            ClientLevel world = getChunkWorld(builtChunk);
             if (world != null) {
                 return world;
             }
@@ -1033,17 +1034,17 @@ public class ChunkProxy {
         return null;
     }
 
-    private static int getStorageBottomSectionCoord(BuiltChunkStorage storage) {
-        ClientWorld world = getStorageWorld(storage);
-        return world == null ? 0 : world.getBottomSectionCoord();
+    private static int getStorageBottomSectionCoord(ViewArea storage) {
+        ClientLevel world = getStorageWorld(storage);
+        return world == null ? 0 : world.getMinSectionY();
     }
 
-    private static int getStorageTopSectionCoord(BuiltChunkStorage storage) {
-        ClientWorld world = getStorageWorld(storage);
-        return world == null ? -1 : world.getTopSectionCoord();
+    private static int getStorageTopSectionCoord(ViewArea storage) {
+        ClientLevel world = getStorageWorld(storage);
+        return world == null ? -1 : world.getMaxSectionY();
     }
 
-    private static ClientWorld getChunkWorld(ChunkBuilder.BuiltChunk builtChunk) {
+    private static ClientLevel getChunkWorld(SectionRenderDispatcher.RenderSection builtChunk) {
         IChunkBuilderBuiltChunkExt builtChunkExt = (IChunkBuilderBuiltChunkExt) builtChunk;
         IChunkBuilderExt chunkBuilderExt =
             (IChunkBuilderExt) builtChunkExt.radiance$getChunkBuilder();
@@ -1141,23 +1142,23 @@ public class ChunkProxy {
         }
     }
 
-    private static boolean submitRebuild(ChunkBuilder.BuiltChunk builtChunk, boolean importantExecutor,
+    private static boolean submitRebuild(SectionRenderDispatcher.RenderSection builtChunk, boolean importantExecutor,
         boolean importantBuild) {
         ChunkBuild build;
         synchronized (chunkLifecycleLock) {
             ChunkSlot slot = chunkSlots.get(builtChunk.index);
-            ClientWorld world = getChunkWorld(builtChunk);
+            ClientLevel world = getChunkWorld(builtChunk);
             if (slot == null || slot.builtChunk != builtChunk || slot.relocating || world == null
-                || world != MinecraftClient.getInstance().world
+                || world != Minecraft.getInstance().level
                 || !slot.origin.equals(builtChunk.getOrigin())) {
                 return false;
             }
-            WorldChunk sourceChunk = getLoadedSourceChunk(world, slot.origin);
+            LevelChunk sourceChunk = getLoadedSourceChunk(world, slot.origin);
             if (sourceChunk == null || !inFlightRebuildIndices.add(builtChunk.index)) {
                 return false;
             }
             build = new ChunkBuild(slot, world, sourceChunk);
-            builtChunk.cancelRebuild();
+            builtChunk.setNotDirty();
         }
         if (importantExecutor) {
             importantRebuildsInFlight.incrementAndGet();
@@ -1218,7 +1219,7 @@ public class ChunkProxy {
     }
 
     private static void insertNearestCandidate(List<RebuildCandidate> candidates,
-        ChunkBuilder.BuiltChunk builtChunk,
+        SectionRenderDispatcher.RenderSection builtChunk,
         double squaredDistanceToCamera,
         double priorityDistance,
         boolean important,
@@ -1247,14 +1248,14 @@ public class ChunkProxy {
 
     private static final class RebuildCandidate implements Comparable<RebuildCandidate> {
 
-        private final ChunkBuilder.BuiltChunk builtChunk;
+        private final SectionRenderDispatcher.RenderSection builtChunk;
         private final double squaredDistanceToCamera;
         private final double priorityDistance;
         private final int columnX;
         private final int columnZ;
         private final boolean important;
 
-        private RebuildCandidate(ChunkBuilder.BuiltChunk builtChunk,
+        private RebuildCandidate(SectionRenderDispatcher.RenderSection builtChunk,
             double squaredDistanceToCamera,
             double priorityDistance,
             boolean important) {
@@ -1288,21 +1289,21 @@ public class ChunkProxy {
     }
 
     private static final class ChunkSlot {
-        private final ChunkBuilder.BuiltChunk builtChunk;
+        private final SectionRenderDispatcher.RenderSection builtChunk;
         private final BlockPos origin;
         private final long generation;
         private boolean relocating = true;
 
-        private ChunkSlot(ChunkBuilder.BuiltChunk builtChunk, BlockPos origin, long generation) {
+        private ChunkSlot(SectionRenderDispatcher.RenderSection builtChunk, BlockPos origin, long generation) {
             this.builtChunk = builtChunk;
             this.origin = origin;
             this.generation = generation;
         }
     }
 
-    private record ChunkBuild(ChunkSlot slot, ClientWorld world, WorldChunk sourceChunk) {}
+    private record ChunkBuild(ChunkSlot slot, ClientLevel world, LevelChunk sourceChunk) {}
 
-    public static void beginRelocation(ChunkBuilder.BuiltChunk builtChunk, int x, int y, int z) {
+    public static void beginRelocation(SectionRenderDispatcher.RenderSection builtChunk, int x, int y, int z) {
         synchronized (chunkLifecycleLock) {
             ChunkSlot slot = new ChunkSlot(builtChunk, new BlockPos(x, y, z), ++nextChunkGeneration);
             chunkSlots.put(builtChunk.index, slot);
@@ -1310,7 +1311,7 @@ public class ChunkProxy {
         }
     }
 
-    public static void finishRelocation(ChunkBuilder.BuiltChunk builtChunk) {
+    public static void finishRelocation(SectionRenderDispatcher.RenderSection builtChunk) {
         synchronized (chunkLifecycleLock) {
             ChunkSlot slot = chunkSlots.get(builtChunk.index);
             if (slot != null && slot.builtChunk == builtChunk && slot.origin.equals(builtChunk.getOrigin())) {
@@ -1323,12 +1324,12 @@ public class ChunkProxy {
         ChunkSlot slot = build.slot;
         return chunkSlots.get(slot.builtChunk.index) == slot && !slot.relocating
             && slot.origin.equals(slot.builtChunk.getOrigin())
-            && build.world == MinecraftClient.getInstance().world;
+            && build.world == Minecraft.getInstance().level;
     }
 
-    private static WorldChunk getLoadedSourceChunk(ClientWorld world, BlockPos origin) {
-        return world.getChunkManager().getChunk(ChunkSectionPos.getSectionCoord(origin.getX()),
-            ChunkSectionPos.getSectionCoord(origin.getZ()), ChunkStatus.FULL, false);
+    private static LevelChunk getLoadedSourceChunk(ClientLevel world, BlockPos origin) {
+        return world.getChunkSource().getChunk(SectionPos.blockToSectionCoord(origin.getX()),
+            SectionPos.blockToSectionCoord(origin.getZ()), ChunkStatus.FULL, false);
     }
 
     private static boolean isBuildSourceLoaded(ChunkBuild build) {
@@ -1340,31 +1341,31 @@ public class ChunkProxy {
             return false;
         }
         BlockPos origin = build.slot.origin;
-        WorldChunk chunk = build.sourceChunk;
-        int section = ChunkSectionPos.getSectionCoord(origin.getY()) - build.world.getBottomSectionCoord();
-        return section >= 0 && section < chunk.getSectionArray().length && chunk.getSection(section).isEmpty();
+        LevelChunk chunk = build.sourceChunk;
+        int section = SectionPos.blockToSectionCoord(origin.getY()) - build.world.getMinSectionY();
+        return section >= 0 && section < chunk.getSections().length && chunk.getSection(section).hasOnlyAir();
     }
 
     private static void completeEmptySections() {
-        BuiltChunkStorage storage = currentStorage;
-        if (storage == null || storage.chunks == null || storage.chunks.length == 0) {
+        ViewArea storage = currentStorage;
+        if (storage == null || storage.sections == null || storage.sections.length == 0) {
             return;
         }
-        int count = Math.min(storage.chunks.length, BACKGROUND_REBUILD_SCAN_LIMIT_PER_FRAME);
+        int count = Math.min(storage.sections.length, BACKGROUND_REBUILD_SCAN_LIMIT_PER_FRAME);
         for (int i = 0; i < count; i++) {
-            emptySectionScanIndex %= storage.chunks.length;
-            ChunkBuilder.BuiltChunk builtChunk = storage.chunks[emptySectionScanIndex++];
-            if (builtChunk == null || !builtChunk.needsRebuild()
+            emptySectionScanIndex %= storage.sections.length;
+            SectionRenderDispatcher.RenderSection builtChunk = storage.sections[emptySectionScanIndex++];
+            if (builtChunk == null || !builtChunk.isDirty()
                 || inFlightRebuildIndices.contains(builtChunk.index)) {
                 continue;
             }
             synchronized (chunkLifecycleLock) {
                 ChunkSlot slot = chunkSlots.get(builtChunk.index);
-                ClientWorld world = getChunkWorld(builtChunk);
+                ClientLevel world = getChunkWorld(builtChunk);
                 if (slot == null || slot.builtChunk != builtChunk || slot.relocating || world == null) {
                     continue;
                 }
-                WorldChunk sourceChunk = getLoadedSourceChunk(world, slot.origin);
+                LevelChunk sourceChunk = getLoadedSourceChunk(world, slot.origin);
                 if (sourceChunk == null) {
                     continue;
                 }
@@ -1373,11 +1374,11 @@ public class ChunkProxy {
                     continue;
                 }
                 BlockPos origin = slot.origin;
-                builtChunk.cancelRebuild();
+                builtChunk.setNotDirty();
                 invalidateSingle(builtChunk.index, origin.getX(), origin.getY(), origin.getZ(),
                     slot.generation, 0, 0);
                 IChunkBuilderBuiltChunkExt builtChunkExt = (IChunkBuilderBuiltChunkExt) builtChunk;
-                builtChunk.setNoCullingBlockEntities(List.of());
+                builtChunk.updateGlobalBlockEntities(List.of());
                 publishChunkData(build, (IChunkBuilderExt) builtChunkExt.radiance$getChunkBuilder(), TERRAIN_EMPTY);
                 rebuildQueue.remove(builtChunk.index, builtChunk);
                 forcedRebuildIndices.remove(builtChunk.index);
@@ -1387,10 +1388,10 @@ public class ChunkProxy {
     }
 
     private static void retryBuild(ChunkBuild build) {
-        MinecraftClient.getInstance().execute(() -> {
+        Minecraft.getInstance().execute(() -> {
             synchronized (chunkLifecycleLock) {
                 if (isCurrentBuild(build)) {
-                    build.slot.builtChunk.scheduleRebuild(false);
+                    build.slot.builtChunk.setDirty(false);
                 }
             }
         });
@@ -1407,14 +1408,14 @@ public class ChunkProxy {
                 retryBuild(build);
                 return;
             }
-            ChunkRendererRegionBuilder chunkRendererRegionBuilder = new ChunkRendererRegionBuilder();
-            ChunkBuilder.BuiltChunk builtChunk = build.slot.builtChunk;
+            RenderRegionCache chunkRendererRegionBuilder = new RenderRegionCache();
+            SectionRenderDispatcher.RenderSection builtChunk = build.slot.builtChunk;
             IChunkBuilderBuiltChunkExt builtChunkExt = (IChunkBuilderBuiltChunkExt) builtChunk;
-            ChunkBuilder chunkBuilder = builtChunkExt.radiance$getChunkBuilder();
+            SectionRenderDispatcher chunkBuilder = builtChunkExt.radiance$getChunkBuilder();
             IChunkBuilderExt chunkBuilderExt = (IChunkBuilderExt) chunkBuilder;
             BlockPos origin = build.slot.origin;
-            ChunkRendererRegion chunkRendererRegion = chunkRendererRegionBuilder.build(
-                build.world, ChunkSectionPos.from(origin));
+            RenderChunkRegion chunkRendererRegion = chunkRendererRegionBuilder.createRegion(
+                build.world, SectionPos.of(origin));
 
             if (chunkRendererRegion == null) {
                 synchronized (chunkLifecycleLock) {
@@ -1424,7 +1425,7 @@ public class ChunkProxy {
                     if (isBuildSourceEmpty(build)) {
                         invalidateSingle(builtChunk.index, origin.getX(), origin.getY(), origin.getZ(),
                             build.slot.generation, 0, 0);
-                        builtChunk.setNoCullingBlockEntities(List.of());
+                        builtChunk.updateGlobalBlockEntities(List.of());
                         publishChunkData(build, chunkBuilderExt, TERRAIN_EMPTY);
                     } else {
                         retryBuild(build);
@@ -1433,7 +1434,7 @@ public class ChunkProxy {
                 return;
             }
 
-            BlockBufferAllocatorStorage storage = blockBufferAllocatorStorage.get();
+            SectionBufferBuilderPack storage = blockBufferAllocatorStorage.get();
             rebuildSingle(chunkRendererRegion, chunkBuilder, chunkBuilderExt, build, storage,
                 important);
         } catch (Exception e) {
@@ -1441,16 +1442,16 @@ public class ChunkProxy {
         }
     }
 
-    private static void rebuildSingle(ChunkRendererRegion chunkRendererRegion,
-        ChunkBuilder chunkBuilder, IChunkBuilderExt chunkBuilderExt,
+    private static void rebuildSingle(RenderChunkRegion chunkRendererRegion,
+        SectionRenderDispatcher chunkBuilder, IChunkBuilderExt chunkBuilderExt,
         ChunkBuild build,
-        BlockBufferAllocatorStorage storage, boolean important) {
-        ChunkBuilder.BuiltChunk builtChunk = build.slot.builtChunk;
+        SectionBufferBuilderPack storage, boolean important) {
+        SectionRenderDispatcher.RenderSection builtChunk = build.slot.builtChunk;
         BlockPos origin = build.slot.origin;
         IChunkBuilderBuiltChunkExt builtChunkExt = (IChunkBuilderBuiltChunkExt) builtChunk;
         ChunkRenderData renderData = buildRenderData(chunkBuilderExt, chunkRendererRegion, origin, storage,
             chunkBuilder.getCameraPosition());
-        Map<RenderLayer, BuiltBuffer> buffers = renderData.buffers;
+        Map<RenderType, MeshData> buffers = renderData.buffers;
         synchronized (chunkLifecycleLock) {
             if (!isCurrentBuild(build) || !isBuildSourceLoaded(build)) {
                 closeUntransferredBuiltBuffers(buffers, new TransferredBuildBuffer[0]);
@@ -1460,19 +1461,19 @@ public class ChunkProxy {
         }
 
         if (buffers.isEmpty()) {
-            ChunkBuilder.ChunkData chunkData = new ChunkBuilder.ChunkData() {
+            SectionRenderDispatcher.CompiledSection chunkData = new SectionRenderDispatcher.CompiledSection() {
                 @Override
-                public List<BlockEntity> getBlockEntities() {
+                public List<BlockEntity> getRenderableBlockEntities() {
                     return renderData.blockEntities;
                 }
 
                 @Override
-                public boolean isVisibleThrough(Direction from, Direction to) {
-                    return renderData.chunkOcclusionData.isVisibleThrough(from, to);
+                public boolean facesCanSeeEachother(Direction from, Direction to) {
+                    return renderData.chunkOcclusionData.visibilityBetween(from, to);
                 }
 
                 @Override
-                public boolean isEmpty(RenderLayer layer) {
+                public boolean isEmpty(RenderType layer) {
                     return true;
                 }
             };
@@ -1481,7 +1482,7 @@ public class ChunkProxy {
                     if (isCurrentBuild(build) && isBuildSourceLoaded(build)) {
                         invalidateSingle(builtChunk.index, origin.getX(), origin.getY(), origin.getZ(),
                             build.slot.generation, terrain.count, terrain.address);
-                        builtChunk.setNoCullingBlockEntities(renderData.noCullingBlockEntities);
+                        builtChunk.updateGlobalBlockEntities(renderData.noCullingBlockEntities);
                         publishChunkData(build, chunkBuilderExt, chunkData);
                         builtChunkCount++;
                     } else {
@@ -1490,19 +1491,19 @@ public class ChunkProxy {
                 }
             }
         } else {
-            ChunkBuilder.ChunkData chunkData = new ChunkBuilder.ChunkData() {
+            SectionRenderDispatcher.CompiledSection chunkData = new SectionRenderDispatcher.CompiledSection() {
                 @Override
-                public List<BlockEntity> getBlockEntities() {
+                public List<BlockEntity> getRenderableBlockEntities() {
                     return renderData.blockEntities;
                 }
 
                 @Override
-                public boolean isVisibleThrough(Direction from, Direction to) {
-                    return renderData.chunkOcclusionData.isVisibleThrough(from, to);
+                public boolean facesCanSeeEachother(Direction from, Direction to) {
+                    return renderData.chunkOcclusionData.visibilityBetween(from, to);
                 }
 
                 @Override
-                public boolean isEmpty(RenderLayer layer) {
+                public boolean isEmpty(RenderType layer) {
                     return layer == null ? false : !buffers.containsKey(layer);
                 }
             };
@@ -1560,27 +1561,27 @@ public class ChunkProxy {
                 int indicesBaseAddr = 0;
 
                 int geometryIndex = 0;
-                for (Map.Entry<RenderLayer, BuiltBuffer> entry : buffers.entrySet()) {
-                    RenderLayer renderLayer = entry.getKey();
-                    assert renderLayer.getDrawMode() == QUADS;
+                for (Map.Entry<RenderType, MeshData> entry : buffers.entrySet()) {
+                    RenderType renderLayer = entry.getKey();
+                    assert renderLayer.mode() == QUADS;
 
-                    BuiltBuffer vertexBuffer = entry.getValue();
+                    MeshData vertexBuffer = entry.getValue();
                     TransferredBuildBuffer transferredBuffer = TransferredBuildBuffer.takeChunk(storage, renderLayer, vertexBuffer);
                     transferredBuffers[geometryIndex] = transferredBuffer;
-                    assert vertexBuffer.getDrawParameters().indexCount()
-                        == vertexBuffer.getDrawParameters().vertexCount() / 4 * 6;
+                    assert vertexBuffer.drawState().indexCount()
+                        == vertexBuffer.drawState().vertexCount() / 4 * 6;
 
-                    TextureManager textureManager = MinecraftClient.getInstance()
+                    TextureManager textureManager = Minecraft.getInstance()
                         .getTextureManager();
 
                     int geometryTypeID = Constants.GeometryTypes.getGeometryType(renderLayer, true)
                         .getValue();
                     int geometryTextureID = textureManager.getTexture(
-                            ((RenderLayer.MultiPhase) renderLayer).phases.texture.getId()
-                                .orElse(MissingSprite.getMissingSpriteId()))
-                        .getGlId();
+                            ((RenderType.CompositeRenderType) renderLayer).state.textureState.cutoutTexture()
+                                .orElse(MissingTextureAtlasSprite.getLocation()))
+                        .getId();
                     int vertexFormatID = Constants.VertexFormats.getValue(
-                        vertexBuffer.getDrawParameters().format());
+                        vertexBuffer.drawState().format());
 
                     geometryTypeBB.putInt(geometryTypeBaseAddr, geometryTypeID);
                     geometryTypeBaseAddr += Integer.BYTES;
@@ -1598,11 +1599,11 @@ public class ChunkProxy {
                     vertexFormatBaseAddr += Integer.BYTES;
 
                     indexTypeBB.putInt(indexTypeBaseAddr,
-                        Constants.IndexTypes.getValue(vertexBuffer.getDrawParameters().indexType()));
+                        Constants.IndexTypes.getValue(vertexBuffer.drawState().indexType()));
                     indexTypeBaseAddr += Integer.BYTES;
 
                     vertexCountBB.putInt(vertexCountBaseAddr,
-                        vertexBuffer.getDrawParameters().vertexCount());
+                        vertexBuffer.drawState().vertexCount());
                     vertexCountBaseAddr += Integer.BYTES;
 
                     verticesBB.putLong(verticesBaseAddr, transferredBuffer.vertexAddress());
@@ -1658,7 +1659,7 @@ public class ChunkProxy {
             if (submittedNative) {
                 synchronized (chunkLifecycleLock) {
                     if (isCurrentBuild(build) && isBuildSourceLoaded(build)) {
-                        builtChunk.setNoCullingBlockEntities(renderData.noCullingBlockEntities);
+                        builtChunk.updateGlobalBlockEntities(renderData.noCullingBlockEntities);
                         publishChunkData(build, chunkBuilderExt, chunkData);
                         builtChunkCount++;
                     } else {
@@ -1677,29 +1678,29 @@ public class ChunkProxy {
     }
 
     private static void publishChunkData(ChunkBuild build,
-        IChunkBuilderExt chunkBuilderExt, ChunkBuilder.ChunkData chunkData) {
-        ChunkBuilder.BuiltChunk builtChunk = build.slot.builtChunk;
-        builtChunk.data.set(chunkData);
+        IChunkBuilderExt chunkBuilderExt, SectionRenderDispatcher.CompiledSection chunkData) {
+        SectionRenderDispatcher.RenderSection builtChunk = build.slot.builtChunk;
+        builtChunk.compiled.set(chunkData);
         BlockEntitySectionCache.changed(builtChunk);
-        chunkBuilderExt.radiance$getWorldRenderer().addBuiltChunk(builtChunk);
+        chunkBuilderExt.radiance$getWorldRenderer().addRecentlyCompiledSection(builtChunk);
     }
 
     private static ChunkRenderData buildRenderData(IChunkBuilderExt chunkBuilderExt,
-        ChunkRendererRegion chunkRendererRegion, BlockPos blockPos,
-        BlockBufferAllocatorStorage storage, Vec3d cameraPos) {
-        VertexSorter sorter = VertexSorter.byDistance((float) (cameraPos.x - blockPos.getX()),
+        RenderChunkRegion chunkRendererRegion, BlockPos blockPos,
+        SectionBufferBuilderPack storage, Vec3 cameraPos) {
+        VertexSorting sorter = VertexSorting.byDistance((float) (cameraPos.x - blockPos.getX()),
             (float) (cameraPos.y - blockPos.getY()), (float) (cameraPos.z - blockPos.getZ()));
-        SectionBuilder.RenderData section = chunkBuilderExt.radiance$getSectionBuilder()
-            .build(ChunkSectionPos.from(blockPos), chunkRendererRegion, sorter, storage);
+        SectionCompiler.Results section = chunkBuilderExt.radiance$getSectionBuilder()
+            .compile(SectionPos.of(blockPos), chunkRendererRegion, sorter, storage);
         ChunkRenderData renderData = new ChunkRenderData();
-        renderData.buffers.putAll(section.buffers);
+        renderData.buffers.putAll(section.renderedLayers);
         renderData.blockEntities.addAll(section.blockEntities);
-        renderData.noCullingBlockEntities.addAll(section.noCullingBlockEntities);
-        renderData.chunkOcclusionData = section.chunkOcclusionData;
+        renderData.noCullingBlockEntities.addAll(section.globalBlockEntities);
+        renderData.chunkOcclusionData = section.visibilitySet;
         if (Vista.isAvailable()) {
             ChunkTerrainBuilder terrain = new ChunkTerrainBuilder();
             try {
-                for (BlockPos pos : BlockPos.iterate(blockPos, blockPos.add(15, 15, 15))) {
+                for (BlockPos pos : BlockPos.betweenClosed(blockPos, blockPos.offset(15, 15, 15))) {
                     if ((pos.getX() & 15) == 0 || (pos.getX() & 15) == 15
                         || (pos.getZ() & 15) == 0 || (pos.getZ() & 15) == 15) {
                         terrain.add(chunkRendererRegion, pos, chunkRendererRegion.getBlockState(pos));
@@ -1707,16 +1708,16 @@ public class ChunkProxy {
                 }
                 renderData.terrain = terrain.build();
             } catch (RuntimeException | Error e) {
-                section.close();
+                section.release();
                 throw e;
             }
         }
         return renderData;
     }
 
-    private static void closeUntransferredBuiltBuffers(Map<RenderLayer, BuiltBuffer> buffers,
+    private static void closeUntransferredBuiltBuffers(Map<RenderType, MeshData> buffers,
         TransferredBuildBuffer[] transferredBuffers) {
-        for (BuiltBuffer builtBuffer : buffers.values()) {
+        for (MeshData builtBuffer : buffers.values()) {
             if (isTransferred(builtBuffer, transferredBuffers)) {
                 continue;
             }
@@ -1724,7 +1725,7 @@ public class ChunkProxy {
         }
     }
 
-    private static boolean isTransferred(BuiltBuffer builtBuffer,
+    private static boolean isTransferred(MeshData builtBuffer,
         TransferredBuildBuffer[] transferredBuffers) {
         if (transferredBuffers == null) {
             return false;
@@ -1746,7 +1747,7 @@ public class ChunkProxy {
 
     public static native boolean isChunkReady(long index);
 
-    public static boolean isChunkReady(ChunkBuilder.BuiltChunk builtChunk) {
+    public static boolean isChunkReady(SectionRenderDispatcher.RenderSection builtChunk) {
         return isChunkReady(builtChunk.index);
     }
 
@@ -1759,8 +1760,8 @@ public class ChunkProxy {
     private static final class ChunkRenderData {
         private final List<BlockEntity> noCullingBlockEntities = new ArrayList<>();
         private final List<BlockEntity> blockEntities = new ArrayList<>();
-        private final Map<RenderLayer, BuiltBuffer> buffers = new ConcurrentHashMap<>();
-        private ChunkOcclusionData chunkOcclusionData = new ChunkOcclusionData();
+        private final Map<RenderType, MeshData> buffers = new ConcurrentHashMap<>();
+        private VisibilitySet chunkOcclusionData = new VisibilitySet();
         private VistaTerrain terrain = VistaTerrain.EMPTY;
     }
 }

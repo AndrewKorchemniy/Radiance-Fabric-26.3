@@ -3,9 +3,9 @@ package com.radiance.client.mod_support.distant_horizons;
 import com.seibel.distanthorizons.api.enums.rendering.EDhApiBlockMaterial;
 import com.seibel.distanthorizons.core.dataObjects.render.textures.BlockTextureRegistry;
 import com.seibel.distanthorizons.core.enums.EDhDirection;
+import net.minecraft.world.level.block.state.BlockState;
 import com.seibel.distanthorizons.common.wrappers.block.BlockStateWrapper;
 import com.seibel.distanthorizons.common.wrappers.minecraft.MinecraftClientWrapper;
-import net.minecraft.block.BlockState;
 
 public class DistantHorizonsMaterials {
     public static int encode(int material, int tile) {

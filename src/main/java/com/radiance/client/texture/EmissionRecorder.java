@@ -1,9 +1,9 @@
 package com.radiance.client.texture;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.profiler.Profiler;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.texture.NativeImage;
 import org.jetbrains.annotations.Nullable;
 
 public final class EmissionRecorder {
@@ -110,14 +110,14 @@ public final class EmissionRecorder {
                             int sampleX = startX + localX;
                             int sampleY = startY + localY;
 
-                            int pixelArgb = albedo.getColorArgb(sampleX, sampleY);
+                            int pixelArgb = albedo.getPixel(sampleX, sampleY);
                             float alphaCoverage = decodeAlphaCoverage(pixelArgb);
                             if (alphaCoverage <= 0.0f) {
                                 continue;
                             }
 
                             float emission = decodeLabPbrEmission(
-                                specular.getColorArgb(sampleX, sampleY));
+                                specular.getPixel(sampleX, sampleY));
                             if (emission <= 0.0f) {
                                 continue;
                             }

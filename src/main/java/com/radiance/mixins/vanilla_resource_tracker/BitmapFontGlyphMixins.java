@@ -1,32 +1,32 @@
 package com.radiance.mixins.vanilla_resource_tracker;
 
+import com.mojang.blaze3d.font.SheetGlyphInfo;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.radiance.client.texture.TextureTracker;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.IRenderableGlyphExt;
 import java.util.function.Function;
-import net.minecraft.client.font.BakedGlyph;
-import net.minecraft.client.font.BitmapFont;
-import net.minecraft.client.font.RenderableGlyph;
-import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.gui.font.glyphs.BakedGlyph;
+import net.minecraft.client.gui.font.providers.BitmapProvider;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(BitmapFont.BitmapFontGlyph.class)
+@Mixin(BitmapProvider.Glyph.class)
 public abstract class BitmapFontGlyphMixins {
 
     @Shadow
     @Final
-    float scaleFactor;
+    float scale;
 
     @Shadow
     @Final
-    int x;
+    int offsetX;
 
     @Shadow
     @Final
-    int y;
+    int offsetY;
 
     @Shadow
     @Final
@@ -49,25 +49,25 @@ public abstract class BitmapFontGlyphMixins {
 
 
     @Overwrite
-    public BakedGlyph bake(Function<RenderableGlyph, BakedGlyph> function) {
+    public BakedGlyph bake(Function<SheetGlyphInfo, BakedGlyph> function) {
         return function.apply(new IRenderableGlyphExt() {
             @Override
             public float getOversample() {
-                return 1.0f / scaleFactor;
+                return 1.0f / scale;
             }
 
             @Override
-            public int getWidth() {
+            public int getPixelWidth() {
                 return width;
             }
 
             @Override
-            public int getHeight() {
+            public int getPixelHeight() {
                 return height;
             }
 
             @Override
-            public float getAscent() {
+            public float getBearingTop() {
                 return ascent;
             }
 
@@ -75,7 +75,7 @@ public abstract class BitmapFontGlyphMixins {
             public void upload(int u, int v) {
 
 
-                image.upload(0, u, v, x, y, width, height, false);
+                image.upload(0, u, v, offsetX, offsetY, width, height, false);
             }
 
             @Override
@@ -85,9 +85,9 @@ public abstract class BitmapFontGlyphMixins {
             }
 
             @Override
-            public boolean hasColor() {
-                return image.getFormat()
-                    .getChannelCount() > 1;
+            public boolean isColored() {
+                return image.format()
+                    .components() > 1;
             }
         });
     }

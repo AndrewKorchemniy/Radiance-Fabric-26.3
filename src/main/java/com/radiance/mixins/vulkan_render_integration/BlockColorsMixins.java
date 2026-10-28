@@ -2,13 +2,13 @@ package com.radiance.mixins.vulkan_render_integration;
 
 import com.radiance.client.util.BlockColorEmissionProvider;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IBlockColorsExt;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.color.block.BlockColorProvider;
+import net.minecraft.client.color.block.BlockColor;
 import net.minecraft.client.color.block.BlockColors;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.collection.IdList;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.BlockRenderView;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.IdMapper;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -19,7 +19,7 @@ public class BlockColorsMixins implements IBlockColorsExt {
 
     @Final
     @Shadow
-    private IdList<BlockColorProvider> providers;
+    private IdMapper<BlockColor> blockColors;
 
 
 
@@ -38,10 +38,10 @@ public class BlockColorsMixins implements IBlockColorsExt {
 
 
     @Override
-    public float radiance$getEmission(BlockState state, @Nullable BlockRenderView world,
+    public float radiance$getEmission(BlockState state, @Nullable BlockAndTintGetter world,
         @Nullable BlockPos pos, int tintIndex) {
-        BlockColorProvider blockColorProvider = this.providers.get(
-            Registries.BLOCK.getRawId(state.getBlock()));
+        BlockColor blockColorProvider = this.blockColors.byId(
+            BuiltInRegistries.BLOCK.getId(state.getBlock()));
         if (blockColorProvider instanceof BlockColorEmissionProvider blockColorEmissionProvider) {
             return blockColorEmissionProvider.getEmission(state, world, pos, tintIndex);
         } else {

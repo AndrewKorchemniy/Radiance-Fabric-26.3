@@ -8,10 +8,10 @@ import com.seibel.distanthorizons.core.pos.blockPos.DhBlockPosMutable;
 import com.seibel.distanthorizons.core.wrapperInterfaces.block.IBlockStateWrapper;
 import com.seibel.distanthorizons.core.wrapperInterfaces.world.IClientLevelWrapper;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.registry.tag.FluidTags;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,9 +28,9 @@ public class FullDataToRenderDataTransformerMixins {
         IBlockStateWrapper block = mapping.getBlockStateWrapper(id);
         if (block.isSolid() || !block.isLiquid()
             || !(block.getWrappedMcObject() instanceof BlockState state)) { return block; }
-        if (!state.isOf(Blocks.KELP) && !state.isOf(Blocks.KELP_PLANT)
-            && !state.isOf(Blocks.SEAGRASS) && !state.isOf(Blocks.TALL_SEAGRASS)) { return block; }
+        if (!state.is(Blocks.KELP) && !state.is(Blocks.KELP_PLANT)
+            && !state.is(Blocks.SEAGRASS) && !state.is(Blocks.TALL_SEAGRASS)) { return block; }
         FluidState fluid = state.getFluidState();
-        return fluid.isIn(FluidTags.WATER) ? BlockStateWrapper.fromBlockState(fluid.getBlockState(), level) : block;
+        return fluid.is(FluidTags.WATER) ? BlockStateWrapper.fromBlockState(fluid.createLegacyBlock(), level) : block;
     }
 }

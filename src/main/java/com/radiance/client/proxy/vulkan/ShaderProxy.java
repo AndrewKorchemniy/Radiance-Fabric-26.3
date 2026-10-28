@@ -1,6 +1,9 @@
 package com.radiance.client.proxy.vulkan;
 
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.shader.ShaderDefinition;
 import com.radiance.client.shader.ShaderField;
@@ -10,19 +13,16 @@ import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.GlUniform;
-import net.minecraft.client.gl.ShaderProgram;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.CompiledShaderProgram;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 public final class ShaderProxy {
 
-    private static final Identifier WHITE_TEXTURE_ID = Identifier.of("radiance",
+    private static final ResourceLocation WHITE_TEXTURE_ID = ResourceLocation.fromNamespaceAndPath("radiance",
         "generated/white");
     private static Integer whiteTextureId;
 
@@ -42,7 +42,7 @@ public final class ShaderProxy {
             uniformSize);
     }
 
-    public static UniformHandle createUniform(ShaderDefinition shader, ShaderProgram shaderProgram,
+    public static UniformHandle createUniform(ShaderDefinition shader, CompiledShaderProgram shaderProgram,
         MemoryStack stack) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.ShaderProxy.createUniform");
@@ -56,7 +56,7 @@ public final class ShaderProxy {
                     uniformBuffer.putInt(field.offset(), resolveSamplerTextureId(shaderProgramExt, field));
                     continue;
                 }
-                GlUniform uniform = shaderProgramExt.radiance$getUniformsValue()
+                Uniform uniform = shaderProgramExt.radiance$getUniformsValue()
                     .get(uniformIndex++);
                 putUniform(uniformBuffer, field, uniform);
             }
@@ -68,13 +68,13 @@ public final class ShaderProxy {
         }
     }
 
-    public static void syncState(ShaderProgram shaderProgram, VertexFormat.DrawMode drawMode) {
+    public static void syncState(CompiledShaderProgram shaderProgram, VertexFormat.Mode drawMode) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.ShaderProxy.syncState");
         }
         try {
-            shaderProgram.initializeUniforms(drawMode, RenderSystem.getModelViewMatrix(),
-                RenderSystem.getProjectionMatrix(), MinecraftClient.getInstance().getWindow());
+            shaderProgram.setDefaultUniforms(drawMode, RenderSystem.getModelViewMatrix(),
+                RenderSystem.getProjectionMatrix(), Minecraft.getInstance().getWindow());
         } finally {
             if (Profiler.ENABLED) {
                 Profiler.exit();
@@ -126,14 +126,14 @@ public final class ShaderProxy {
             NativeImage image = new NativeImage(16, 16, false);
             for (int y = 0; y < 16; y++) {
                 for (int x = 0; x < 16; x++) {
-                    image.setColorArgb(x, y, 0xFFFFFFFF);
+                    image.setPixel(x, y, 0xFFFFFFFF);
                 }
             }
-            NativeImageBackedTexture texture = new NativeImageBackedTexture(image);
-            MinecraftClient.getInstance()
+            DynamicTexture texture = new DynamicTexture(image);
+            Minecraft.getInstance()
                 .getTextureManager()
-                .registerTexture(WHITE_TEXTURE_ID, texture);
-            whiteTextureId = texture.getGlId();
+                .register(WHITE_TEXTURE_ID, texture);
+            whiteTextureId = texture.getId();
             return whiteTextureId;
         } finally {
             if (Profiler.ENABLED) {
@@ -153,7 +153,7 @@ public final class ShaderProxy {
         }
     }
 
-    private static void putUniform(ByteBuffer uniformBuffer, ShaderField field, GlUniform uniform) {
+    private static void putUniform(ByteBuffer uniformBuffer, ShaderField field, Uniform uniform) {
         IGlUniformExt uniformExt = (IGlUniformExt) (Object) uniform;
         switch (field.kind()) {
             case INT -> putInts(uniformBuffer, field.offset(), uniformExt.radiance$getIntDataValue(),

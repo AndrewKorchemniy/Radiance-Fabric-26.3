@@ -1,8 +1,8 @@
 package com.radiance.mixin_related.extensions.vulkan_render_integration;
 
-import net.minecraft.client.util.BufferAllocator;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 
 public interface ICloseableBufferExt {
 
-    BufferAllocator radiance$getOwnerAllocator();
+    ByteBufferBuilder radiance$getOwnerAllocator();
 }

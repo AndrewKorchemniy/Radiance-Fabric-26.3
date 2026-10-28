@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 public class Options {
 
@@ -368,8 +368,8 @@ public class Options {
 
         if (hasCollectChunkEmissionChanged) {
             if (collectChunkEmission) {
-                MinecraftClient client = MinecraftClient.getInstance();
-                client.reloadResources().thenRun(() -> client.execute(() -> {
+                Minecraft client = Minecraft.getInstance();
+                client.reloadResourcePacks().thenRun(() -> client.execute(() -> {
                     if (Options.collectChunkEmission) {
                         ChunkProxy.rebuildAll();
                     }

@@ -24,15 +24,15 @@ import com.seibel.distanthorizons.coreapi.DependencyInjection.ApiEventInjector;
 import com.seibel.distanthorizons.core.wrapperInterfaces.render.objects.IVertexBufferWrapper;
 import java.util.ArrayList;
 import java.util.Arrays;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Matrix4f;
 
 public class DistantHorizonsSupport implements Vista.Source {
     private static final ArrayList<LodRenderSection> sections = new ArrayList<>();
-    private static ClientWorld currentWorld;
+    private static ClientLevel currentWorld;
     private static long worldVersion;
     private static long[] previousSelection = new long[0];
     private static boolean renderingEnabled = true;
@@ -67,7 +67,7 @@ public class DistantHorizonsSupport implements Vista.Source {
     public void reload() { reloadPending = true; }
 
     @Override
-    public void setWorld(ClientWorld world) {
+    public void setWorld(ClientLevel world) {
         if (!bound) { return; }
         if (currentWorld != world) {
             currentWorld = world;
@@ -83,8 +83,8 @@ public class DistantHorizonsSupport implements Vista.Source {
     @Override
     public void render(Camera camera, Matrix4f view, Matrix4f projection, float tickDelta) {
         if (!bound) { return; }
-        MinecraftClient client = MinecraftClient.getInstance();
-        setWorld(client.world);
+        Minecraft client = Minecraft.getInstance();
+        setWorld(client.level);
         RenderThreadTaskHandler.INSTANCE.runRenderThreadTasks();
         boolean enabled = Config.Client.quickEnableRendering.get()
             && Config.Client.Advanced.Debugging.rendererMode.get() != EDhApiRendererMode.DISABLED;
@@ -108,7 +108,7 @@ public class DistantHorizonsSupport implements Vista.Source {
             previousSelection = new long[0];
             com.seibel.distanthorizons.core.dataObjects.render.textures.BlockTextureRegistry.INSTANCE.clear();
             DistantHorizonsTextures.reset();
-            client.worldRenderer.reload();
+            client.levelRenderer.allChanged();
             for (var loaded : distantHorizonsWorld.getAllLoadedLevels()) {
                 if (loaded instanceof com.seibel.distanthorizons.core.level.IDhClientLevel clientLevel) {
                     clientLevel.clearRenderCache();
