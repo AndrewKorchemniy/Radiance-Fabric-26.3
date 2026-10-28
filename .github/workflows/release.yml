@@ -1,0 +1,106 @@
+name: Release
+
+# Builds the native renderer (MCVR) and the mod for Windows and Linux, and publishes both jars as a
+# GitHub release. Push a tag like `v0.1.6-alpha+26.3` to release, or run it manually to get the
+# jars as workflow artifacts only.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            classifier: windows
+          - os: ubuntu-24.04
+            classifier: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the mod and the native renderer
+        uses: actions/checkout@v4
+        with:
+          # native/MCVR is a submodule pinned to the MCVR-26.3 commit this mod version needs.
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # MCVR needs the full Vulkan SDK: glslangValidator for shaders and shaderc (found through
+      # VULKAN_SDK) for runtime shader pack compilation.
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: false
+          cache: true
+          stripdown: true
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-14 && echo "CXX=g++-14" >> "$GITHUB_ENV" && echo "CC=gcc-14" >> "$GITHUB_ENV"
+
+      # Compiling the Java side writes the JNI headers MCVR builds against.
+      - name: Generate JNI headers
+        shell: bash
+        run: ./gradlew --no-daemon compileJava
+
+      - name: Build and install MCVR (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S native/MCVR -B native/build -G "Visual Studio 17 2022" -A x64 `
+            -DJAVA_PROJECT_ROOT_DIR="${{ github.workspace }}" -DMCVR_ENABLE_NRD=ON -DUSE_AMD=ON
+          cmake --build native/build --config Release --parallel
+          cmake --install native/build --config Release
+
+      - name: Build and install MCVR (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S native/MCVR -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DJAVA_PROJECT_ROOT_DIR="${{ github.workspace }}" -DMCVR_ENABLE_NRD=ON -DUSE_AMD=ON
+          cmake --build native/build --parallel
+          cmake --install native/build
+
+      # build checks that the packaged native library matches the 26.3 interface.
+      - name: Build the mod
+        shell: bash
+        run: ./gradlew --no-daemon build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radiance-${{ matrix.classifier }}
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/*.jar \
+            --repo "${{ github.repository }}" \
+            --title "Radiance ${{ github.ref_name }} for Minecraft 26.3 (Fabric, unofficial port)" \
+            --notes "Unofficial port of Radiance to Minecraft 26.3. Requires Fabric API and a GPU with Vulkan hardware ray tracing. See PORTING.md for status and known differences." \
+            --prerelease

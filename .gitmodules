@@ -1,0 +1,4 @@
+[submodule "native/MCVR"]
+	path = native/MCVR
+	url = https://github.com/AndrewKorchemniy/MCVR-26.3.git
+	branch = port/26.3
