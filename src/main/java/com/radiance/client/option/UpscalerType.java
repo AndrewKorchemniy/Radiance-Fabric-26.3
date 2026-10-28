@@ -4,10 +4,9 @@ import static com.radiance.client.option.Options.UPSCALER_TYPE_FSR3;
 import static com.radiance.client.option.Options.UPSCALER_TYPE_NATIVE;
 
 import com.mojang.serialization.Codec;
-import net.minecraft.util.OptionEnum;
 import net.minecraft.util.StringRepresentable;
 
-public enum UpscalerType implements OptionEnum, StringRepresentable {
+public enum UpscalerType implements StringRepresentable {
     NATIVE(0, "native", UPSCALER_TYPE_NATIVE),
     FSR3(1, "fsr3", UPSCALER_TYPE_FSR3);
 
@@ -28,12 +27,10 @@ public enum UpscalerType implements OptionEnum, StringRepresentable {
         return this.name;
     }
 
-    @Override
     public int getId() {
         return this.ordinal;
     }
 
-    @Override
     public String getKey() {
         return this.translationKey;
     }

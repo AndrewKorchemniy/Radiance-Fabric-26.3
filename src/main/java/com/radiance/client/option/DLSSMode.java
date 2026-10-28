@@ -6,10 +6,9 @@ import static com.radiance.client.option.Options.DLSS_MODE_PERFORMANCE;
 import static com.radiance.client.option.Options.DLSS_MODE_QUALITY;
 
 import com.mojang.serialization.Codec;
-import net.minecraft.util.OptionEnum;
 import net.minecraft.util.StringRepresentable;
 
-public enum DLSSMode implements OptionEnum, StringRepresentable {
+public enum DLSSMode implements StringRepresentable {
     PERFORMANCE(0, "performance", DLSS_MODE_PERFORMANCE),
     BALANCED(1, "balanced", DLSS_MODE_BALANCED),
     QUALITY(2, "quality", DLSS_MODE_QUALITY),
@@ -31,12 +30,10 @@ public enum DLSSMode implements OptionEnum, StringRepresentable {
         return this.name;
     }
 
-    @Override
     public int getId() {
         return this.ordinal;
     }
 
-    @Override
     public String getKey() {
         return this.translationKey;
     }

@@ -6,10 +6,9 @@ import static com.radiance.client.option.Options.DENOISER_MODE_SVGF;
 import static com.radiance.client.option.Options.DENOISER_MODE_TEMPORAL;
 
 import com.mojang.serialization.Codec;
-import net.minecraft.util.OptionEnum;
 import net.minecraft.util.StringRepresentable;
 
-public enum DenoiserMode implements OptionEnum, StringRepresentable {
+public enum DenoiserMode implements StringRepresentable {
     DLSS(0, "dlss", DENOISER_MODE_DLSS),
     SVGF(1, "svgf", DENOISER_MODE_SVGF),
     NRD(2, "nrd", DENOISER_MODE_NRD),
@@ -32,12 +31,10 @@ public enum DenoiserMode implements OptionEnum, StringRepresentable {
         return this.name;
     }
 
-    @Override
     public int getId() {
         return this.ordinal;
     }
 
-    @Override
     public String getKey() {
         return this.translationKey;
     }
