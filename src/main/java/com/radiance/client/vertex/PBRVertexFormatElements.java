@@ -1,6 +1,6 @@
 package com.radiance.client.vertex;
 
-import com.mojang.blaze3d.vertex.VertexFormatElement;
+import com.mojang.renderpearl.api.vertex.VertexFormatElement;
 
 public class PBRVertexFormatElements {
 

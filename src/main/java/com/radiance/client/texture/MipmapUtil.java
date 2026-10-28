@@ -1,7 +1,7 @@
 package com.radiance.client.texture;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.util.ARGB;
 
 public class MipmapUtil {

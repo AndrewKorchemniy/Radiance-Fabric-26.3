@@ -7,7 +7,7 @@ import static org.lwjgl.system.MemoryUtil.memSet;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.texture.TextureTracker;

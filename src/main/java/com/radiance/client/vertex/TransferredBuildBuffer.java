@@ -2,7 +2,7 @@ package com.radiance.client.vertex;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.SectionBufferBuilderPack;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;

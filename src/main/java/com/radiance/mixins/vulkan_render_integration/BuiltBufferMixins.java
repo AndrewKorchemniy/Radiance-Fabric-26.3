@@ -1,8 +1,8 @@
 package com.radiance.mixins.vulkan_render_integration;
 
 import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.blaze3d.vertex.VertexFormat;
-import com.mojang.blaze3d.vertex.VertexFormatElement;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormatElement;
 import com.radiance.client.vertex.PBRVertexFormatElements;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;

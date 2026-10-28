@@ -55,7 +55,7 @@ import net.minecraft.client.particle.ParticleRenderType;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderBuffers;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.ShapeRenderer;
 import net.minecraft.client.renderer.ViewArea;
 import net.minecraft.client.renderer.WeatherEffectRenderer;
