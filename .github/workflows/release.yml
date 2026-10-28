@@ -18,7 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          # MCVR's Windows build is set up for Visual Studio 2022; windows-latest has moved on.
+          - os: windows-2022
             classifier: windows
           - os: ubuntu-24.04
             classifier: linux
