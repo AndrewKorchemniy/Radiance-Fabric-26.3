@@ -48,10 +48,11 @@
 English | [简体中文](README-CN.md)
 
 > [!WARNING]
-> **This is an unofficial, work-in-progress port of Radiance to Minecraft 26.3 (Fabric).** The
-> Java side compiles and all of its mixins apply, but the native renderer (MCVR) has not been ported
-> yet, so the mod cannot be built into a jar or played. See [PORTING.md](PORTING.md) for the plan
-> and progress. For working releases, use the
+> **This is an unofficial, alpha-quality port of Radiance to Minecraft 26.3 (Fabric).** The native
+> renderer ([MCVR-26.3](https://github.com/AndrewKorchemniy/MCVR-26.3)) is ported and the game
+> renders ray-traced worlds, but it has only been tested on one NVIDIA GPU and has known issues; see
+> [PORTING.md](PORTING.md). Please report problems to this repository, not to the official project.
+> For supported releases, use the
 > [official Radiance project](https://github.com/Minecraft-Radiance/Radiance).
 
 # Radiance

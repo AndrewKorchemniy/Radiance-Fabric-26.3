@@ -10,13 +10,13 @@ and has to be ported alongside it.
 | Milestone | Status |
 | --- | --- |
 | M1 Build setup and Mojang names | Done: compiles on 1.21.4 with Mojang names, build targets 26.3 |
-| M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`). Not run in game: that needs M3 |
-| M3 MCVR native port | Not started. Native-side requirements collected below under "What M3 has to change" |
-| M4 Vanilla world rendering in game | Not started |
-| M5 Voxy integration | Java side written and audited with and without DH; in-game untested. Needs native work (tile alpha), see M5 |
-| M5a Sodium compatibility | Near-terrain capture from Sodium's chunk builder written and audited (Sodium 0.9.2 and 0.9.3-beta.1); in-game untested, no new native requirements, see M5a |
-| M6 Distant Horizons integration | Mixins and vertex layout verified; in-game untested |
-| M7 Release workflow | Not started |
+| M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`) |
+| M3 MCVR native port | Done: [MCVR-26.3](https://github.com/AndrewKorchemniy/MCVR-26.3) (`port/26.3`, pinned as `native/MCVR`) attaches to vanilla's device; the game starts and loads worlds |
+| M4 Vanilla world rendering in game | Verified on an RTX 5090 without Sodium/DH: textured, sunlit terrain, leaves, water, sky, clouds, hand, HUD; F2 screenshots and the blurred pause menu include the world. See "Known issues" |
+| M5 Voxy integration | Loads in game with Sodium and creates its world engine; Voxy's own renderer is suppressed as designed. Voxy far terrain has **not** been seen rendering yet (the test spot was mostly ocean and Voxy ingests slowly) |
+| M5a Sodium compatibility | Verified in game with Sodium 0.9.3-beta.1: near terrain renders through Radiance |
+| M6 Distant Horizons integration | Verified in game with DH 3.3.4: LODs render beyond the vanilla distance. DH's "no fog" setting is now passed to native as no fog |
+| M7 Release workflow | Done: `.github/workflows/release.yml` builds MCVR and the mod on Windows and Linux and publishes both jars on a `v*` tag |
 
 ## What changed in Minecraft between 1.21.4 and 26.3
 
@@ -595,14 +595,46 @@ redirect need the native renderer (M3/M4) before they can be exercised.
   4. attaches `Radiance-<version>-fabric-26.3-{windows,linux}.jar` to a GitHub
      release.
 
-## Building (current state)
+## Building
 
 ```sh
-./gradlew compileJava
+git submodule update --init --recursive
+./gradlew compileJava          # also writes the JNI headers MCVR builds against
+cmake -S native/MCVR -B native/build -G "Visual Studio 17 2022" -A x64 \
+  -DJAVA_PROJECT_ROOT_DIR="$PWD" -DMCVR_ENABLE_NRD=ON -DUSE_AMD=ON
+cmake --build native/build --config Release --parallel
+cmake --install native/build --config Release   # copies core.dll and shaders into src/main/resources
+./gradlew build
 ```
 
-`./gradlew build` still requires a native library at
-`src/main/resources/core.dll` (or `libcore.so`), which won't exist until M3.
+On Linux use `-G Ninja -DCMAKE_BUILD_TYPE=Release` with GCC 14; the release
+workflow shows both. MCVR needs the Vulkan SDK (for `glslangValidator` and
+shaderc).
+
+Useful dev runs:
+
+- `./gradlew runAuditMixins` applies every mixin and exits.
+- `./gradlew runClient` starts the game with Sodium, Voxy and Distant Horizons;
+  `-PradianceWithoutSodium` and `-PradianceWithoutDistantHorizons` leave them out.
+
+## Known issues
+
+- **DLSS** needs NVIDIA's runtime DLLs in `<instance>/radiance/`, as upstream
+  documents (see the README). Without them NGX initialisation fails and the
+  DLSS modules are skipped; the device extensions DLSS needs are now enabled,
+  but DLSS itself has not been run on this port. XeSS and FSR need nothing
+  extra.
+- **Depth convention.** 26.3 hands the world renderer a reversed-Z `[0, 1]`
+  projection; `WorldRendererMixins` converts it back to the OpenGL convention
+  native was written for. If a future version changes the projection again,
+  that is the place to look.
+- **Blurred menus** blur the world natively and the HUD through vanilla's own
+  blur, so the result matches vanilla closely but not exactly.
+- **Image layouts.** Native samples vanilla's textures, which vanilla keeps in
+  `VK_IMAGE_LAYOUT_GENERAL`, through descriptors that declare
+  `SHADER_READ_ONLY_OPTIMAL`. This works on NVIDIA; validation would flag it.
+- **Not verified:** AMD and Intel GPUs, Linux in game, rain, underwater, night,
+  the Nether and the End.
 
 ## Licence
 
