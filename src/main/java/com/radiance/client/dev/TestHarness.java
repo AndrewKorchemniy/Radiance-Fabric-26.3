@@ -27,12 +27,14 @@ import net.minecraft.util.Util;
  * <ul>
  *   <li>{@code run <command>}: a server command with owner permission, e.g.
  *       {@code run time set 13000} or {@code run tp @p 0 100 0 90 20}. Needs a singleplayer world.</li>
+ *   <li>{@code respawn}: respawns the player if dead.</li>
  *   <li>{@code wait <ticks>}: pauses the queue.</li>
  *   <li>{@code screenshot <name>}: saves the next presented frame as {@code <directory>/<name>.png}.</li>
  *   <li>{@code quit}: closes the game.</li>
  * </ul>
  * {@code <directory>/status.txt} holds {@code menu} or {@code world} so a script can wait for the
- * world to load. Game sound is muted while the harness is enabled.
+ * world to load. Game sound is muted and pausing on focus loss is turned off while the harness is
+ * enabled.
  */
 public final class TestHarness {
 
@@ -64,6 +66,8 @@ public final class TestHarness {
     private static void tick(Minecraft minecraft) {
         if (!muted) {
             minecraft.options.getSoundSourceOptionInstance(SoundSource.MASTER).set(0.0);
+            // A window on a hidden desktop never has focus; pausing would stop the command queue.
+            minecraft.options.pauseOnLostFocus = false;
             muted = true;
         }
         writeStatus(minecraft.level != null && minecraft.player != null ? "world" : "menu");
@@ -100,6 +104,12 @@ public final class TestHarness {
                 server.execute(() -> server.getCommands()
                     .performPrefixedCommand(server.createCommandSourceStack(), argument));
             }
+            case "respawn" -> {
+                if (minecraft.player != null && minecraft.player.isDeadOrDying()) {
+                    minecraft.player.respawn();
+                    minecraft.gui.setScreen(null);
+                }
+            }
             case "wait" -> waitTicks = Integer.parseInt(argument);
             case "screenshot" -> screenshot(argument);
             case "quit" -> minecraft.stop();
@@ -126,6 +136,11 @@ public final class TestHarness {
         }
         Path taken = directory.resolve("commands.taken");
         try {
+            // Leave a file that is still being written alone; taking it early queues only part of it.
+            long age = System.currentTimeMillis() - Files.getLastModifiedTime(commands).toMillis();
+            if (age < 500) {
+                return;
+            }
             Files.move(commands, taken, StandardCopyOption.REPLACE_EXISTING);
             List<String> lines = Files.readAllLines(taken, StandardCharsets.UTF_8);
             queue.addAll(lines);
