@@ -1,9 +1,7 @@
 package com.radiance.client.texture;
 
-import com.mojang.blaze3d.platform.TextureUtil;
 import com.radiance.client.constant.VulkanConstants;
 import com.radiance.client.proxy.vulkan.TextureProxy;
-import com.radiance.client.ui.UiBackendBuildConfig;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -42,7 +40,6 @@ public final class RainExposure {
         if (level == world) return;
         if (texture != 0) {
             TextureProxy.releaseTexture(texture);
-            if (UiBackendBuildConfig.OPENGL_UI) TextureUtil.releaseTextureId(texture);
         }
         level = world;
         texture = 0;
@@ -67,7 +64,7 @@ public final class RainExposure {
         }
         if (wetness == 0) return 0;
         if (texture == 0) {
-            texture = UiBackendBuildConfig.OPENGL_UI ? TextureUtil.generateTextureId() : TextureProxy.generateTextureId();
+            texture = TextureProxy.generateTextureId();
             if (texture > 65535) throw new IllegalStateException("Rain texture ID exceeds packed uniform range");
             TextureProxy.prepareClearedImage(texture, 1, SIZE, SIZE,
                 VulkanConstants.VkFormat.VK_FORMAT_R8G8B8A8_UNORM, 0, 0, 0, 0, 0);

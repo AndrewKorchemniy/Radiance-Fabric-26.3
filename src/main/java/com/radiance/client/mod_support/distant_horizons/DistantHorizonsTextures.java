@@ -3,8 +3,6 @@ package com.radiance.client.mod_support.distant_horizons;
 import com.radiance.client.constant.VulkanConstants;
 import com.radiance.client.proxy.vulkan.TextureProxy;
 import com.radiance.client.texture.TextureTracker;
-import com.mojang.blaze3d.platform.TextureUtil;
-import com.radiance.client.ui.UiBackendBuildConfig;
 import com.seibel.distanthorizons.core.dataObjects.render.textures.BlockTextureRegistry;
 import java.nio.ByteBuffer;
 import org.lwjgl.system.MemoryUtil;
@@ -91,7 +89,6 @@ public class DistantHorizonsTextures {
 
     public static void close() {
         if (texture != 0) { TextureProxy.releaseTexture(texture); }
-        if (texture != 0 && UiBackendBuildConfig.OPENGL_UI) { TextureUtil.releaseTextureId(texture); }
         texture = 0;
         reset();
     }

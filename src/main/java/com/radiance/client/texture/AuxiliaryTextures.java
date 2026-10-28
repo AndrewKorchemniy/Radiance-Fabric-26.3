@@ -8,7 +8,6 @@ import com.radiance.client.profiler.Profiler;
 import com.radiance.client.proxy.vulkan.TextureProxy;
 import com.radiance.client.texture.TextureTracker.TextureBinding;
 import com.radiance.client.texture.TextureTracker.TextureTarget;
-import com.radiance.client.ui.UiBackendBuildConfig;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import java.io.IOException;
 import java.io.InputStream;
@@ -270,9 +269,6 @@ public enum AuxiliaryTextures {
     private synchronized void releaseAllocatedTextures() {
         for (int textureId : allocatedTextureIdsByBaseTextureId.values()) {
             TextureProxy.releaseTexture(textureId);
-            if (UiBackendBuildConfig.OPENGL_UI) {
-                TextureUtil.releaseTextureId(textureId);
-            }
         }
         auxiliaryBindingsByBaseTextureId.clear();
         allocatedTextureIdsByBaseTextureId.clear();
@@ -280,9 +276,6 @@ public enum AuxiliaryTextures {
     }
 
     private static int allocateAuxiliaryTextureId() {
-        if (UiBackendBuildConfig.OPENGL_UI) {
-            return TextureUtil.generateTextureId();
-        }
         return TextureProxy.generateTextureId();
     }
 

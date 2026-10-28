@@ -7,7 +7,6 @@ import com.mojang.blaze3d.systems.TimerQuery;
 import com.radiance.client.UnsafeManager;
 import com.radiance.client.option.Options;
 import com.radiance.client.pipeline.Pipeline;
-import com.radiance.client.proxy.vulkan.PipelineStateProxy;
 import com.radiance.client.proxy.vulkan.RendererProxy;
 import com.radiance.client.proxy.vulkan.TextureProxy;
 import com.radiance.client.texture.AuxiliaryTextureReloader;
@@ -129,7 +128,6 @@ public class MinecraftClientMixins {
         synchronized (TextureProxy.class) {
             RendererProxy.submitCommandAndPresent();
             RendererProxy.acquireContext();
-            PipelineStateProxy.invalidateDynamicStateCache();
         }
     }
 

@@ -10,7 +10,6 @@ import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.radiance.client.proxy.vulkan.BufferProxy;
 import com.radiance.client.proxy.vulkan.RendererProxy;
-import com.radiance.client.proxy.vulkan.VulkanUiProxy;
 import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
 import net.minecraft.client.Camera;
@@ -68,19 +67,6 @@ public abstract class GameRendererMixins implements IGameRendererExt {
     @Shadow
     protected abstract float getFov(Camera camera, float tickDelta, boolean changingFov);
 
-    @Inject(method = "processBlurEffect()V", at = @At(value = "HEAD"), cancellable = true)
-    public void redirectRenderBlur(CallbackInfo ci) {
-        float f = this.minecraft.options.getMenuBackgroundBlurriness();
-
-
-        if (!(f < 1.0F)) {
-            BufferProxy.updateOverlayPostUniform(f);
-            VulkanUiProxy.postBlur();
-        }
-
-        ci.cancel();
-    }
-
     @Redirect(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
         at = @At(value = "INVOKE", target = "Lorg/joml/Matrix4f;mul(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;", remap = false))
     public Matrix4f cancelPTimesB(Matrix4f instance, Matrix4fc right) {
@@ -120,11 +106,6 @@ public abstract class GameRendererMixins implements IGameRendererExt {
         at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))
     public void cancelFramebufferBeginWrite(RenderTarget instance, boolean setViewport) {
 
-    }
-
-    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(value = "TAIL"))
-    public void fuseWorld(DeltaTracker renderTickCounter, CallbackInfo ci) {
-        VulkanUiProxy.fuseWorld();
     }
 
     @Inject(method = "renderItemInHand(Lnet/minecraft/client/Camera;FLorg/joml/Matrix4f;)V", at = @At(value = "HEAD"), cancellable = true)

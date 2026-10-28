@@ -6,7 +6,6 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.proxy.vulkan.TextureProxy;
 import com.radiance.client.texture.TextureTracker;
-import com.radiance.client.ui.UiBackendBuildConfig;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.INativeImageExt;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.IRenderableGlyphExt;
 import java.nio.IntBuffer;
@@ -68,24 +67,11 @@ public abstract class UnicodeTextureGlyphMixins {
                 int sourceOffsetX = 0, sourceOffsetY = 0;
 
                 assert level == 0;
-                if (UiBackendBuildConfig.OPENGL_UI) {
-                    try (NativeImage image = new NativeImage(format, width, height, false)) {
-                        long imagePointer =
-                            ((com.radiance.mixin_related.extensions.vulkan_render_integration.INativeImageExt)
-                                (Object) image).radiance$getPointer();
-                        MemoryUtil.memCopy(sourcePointer, imagePointer, sourceSizeBytes);
-                        ((INativeImageExt) (Object) image).radiance$setTarget(
-                            TextureTracker.captureTarget(textureId));
-                        image.upload(level, offsetX, offsetY, sourceOffsetX, sourceOffsetY,
-                            width, height, false);
-                    }
-                } else {
-                    long textureGeneration = TextureTracker.captureTarget(textureId).generation();
-                    TextureProxy.queueUploadRegion(new TextureProxy.TextureUploadRegion(
-                        sourcePointer, sourceSizeBytes, sourceRowPixels, textureId,
-                        sourceOffsetX, sourceOffsetY, offsetX, offsetY, width, height, 0,
-                        TextureProxy.UPLOAD_KIND_MAIN, bytesPerPixel, textureGeneration));
-                }
+                long textureGeneration = TextureTracker.captureTarget(textureId).generation();
+                TextureProxy.queueUploadRegion(new TextureProxy.TextureUploadRegion(
+                    sourcePointer, sourceSizeBytes, sourceRowPixels, textureId,
+                    sourceOffsetX, sourceOffsetY, offsetX, offsetY, width, height, 0,
+                    TextureProxy.UPLOAD_KIND_MAIN, bytesPerPixel, textureGeneration));
             } finally {
                 try {
                     TextureProxy.flushUploadBatch();

@@ -1,93 +1,54 @@
 package com.radiance.client.proxy.vulkan;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.platform.Window;
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
+import com.mojang.renderpearl.backend.vulkan.VulkanQueue;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.option.Options;
 import com.radiance.client.profiler.MemoryMetricsCollector;
 import com.radiance.client.profiler.Profiler;
-import com.radiance.client.ui.UiBackendRendererHooks;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.INativeImageExt;
 import net.minecraft.client.Minecraft;
 
 public class RendererProxy {
 
-    private static volatile long openGLPresentationTarget = 0L;
-
     public static native void initFolderPath(String folderPath);
 
-    public static native void initRenderer(String[] glfwLibCandidates, long windowHandle);
+    /**
+     * Attaches the native renderer to vanilla's Vulkan device instead of letting it create its own.
+     * Native keeps its own command pools and VMA allocator on this device, and creates its swapchain
+     * on {@code surface}, the {@code VkSurfaceKHR} vanilla made through SDL.
+     */
+    private static native void initRendererWithVulkanDevice(long instance, long physicalDevice,
+        long device, int graphicsQueueFamily, long graphicsQueue, int computeQueueFamily,
+        long computeQueue, int transferQueueFamily, long transferQueue, long surface,
+        String[] enabledInstanceExtensions, String[] enabledDeviceExtensions);
 
-    private static native long prepareOpenGLPresentationTargetNative(
-        String[] glfwLibCandidates, long windowHandle);
-
-    private static native void initRendererWithOpenGLDevice(long presentationTargetHandle,
-        byte[] deviceUuids, byte[] driverUuid);
-
-    private static native void releaseOpenGLPresentationTargetNative(
-        long presentationTargetHandle);
-
-    private static String[] glfwLibCandidates() {
-        String mapped = System.mapLibraryName("glfw");
-        return new String[] {mapped, "libglfw.so.3", "libglfw.3.dylib", "glfw3.dll"};
-    }
-
-    public static void initRenderer(Window window) {
+    public static void initRenderer(VulkanDevice device, long surface,
+        String[] enabledDeviceExtensions) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.RendererProxy.initRenderer");
         }
         try {
-            RendererProxy.initRenderer(glfwLibCandidates(), window.getWindow());
-            UiBackendRendererHooks.afterRendererInitialized();
+            VulkanQueue graphics = device.graphicsQueue();
+            VulkanQueue compute = device.computeQueue();
+            VulkanQueue transfer = device.transferQueue();
+            initRendererWithVulkanDevice(
+                device.instance().vkInstance().address(),
+                device.vkDevice().getPhysicalDevice().address(),
+                device.vkDevice().address(),
+                graphics.queueFamilyIndex(), graphics.vkQueue().address(),
+                compute.queueFamilyIndex(), compute.vkQueue().address(),
+                transfer.queueFamilyIndex(), transfer.vkQueue().address(),
+                surface,
+                device.instance().getEnabledExtensions().toArray(String[]::new),
+                enabledDeviceExtensions);
             Options.applyDefaultFrameGeneration();
-            RenderSystem.apiDescription = "Vulkan 1.4";
         } finally {
             if (Profiler.ENABLED) {
                 Profiler.exit();
             }
         }
-    }
-
-    public static synchronized void prepareOpenGLPresentationTarget(Window window) {
-        if (openGLPresentationTarget != 0L) {
-            throw new IllegalStateException("OpenGL presentation target is already initialized");
-        }
-        openGLPresentationTarget = prepareOpenGLPresentationTargetNative(
-            glfwLibCandidates(), window.getWindow());
-        if (openGLPresentationTarget == 0L) {
-            throw new IllegalStateException("Failed to create the OpenGL UI presentation target");
-        }
-    }
-
-    public static void initRendererWithOpenGLDevice(byte[] deviceUuids,
-        byte[] driverUuid) {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.RendererProxy.initRendererWithOpenGLDevice");
-        }
-        try {
-            long presentationTarget = openGLPresentationTarget;
-            if (presentationTarget == 0L) {
-                throw new IllegalStateException("OpenGL presentation target was not prepared");
-            }
-            RendererProxy.initRendererWithOpenGLDevice(
-                presentationTarget, deviceUuids, driverUuid);
-            UiBackendRendererHooks.afterRendererInitialized();
-            Options.applyDefaultFrameGeneration();
-            RenderSystem.apiDescription = "Vulkan 1.4 + OpenGL UI";
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
-
-    public static synchronized void releaseOpenGLPresentationTarget() {
-        if (openGLPresentationTarget == 0L) {
-            return;
-        }
-        releaseOpenGLPresentationTargetNative(openGLPresentationTarget);
-        openGLPresentationTarget = 0L;
     }
 
     public static native int maxSupportedTextureSize();
