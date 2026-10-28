@@ -2,24 +2,27 @@ package com.radiance.client.vista;
 
 import com.radiance.client.proxy.world.VistaProxy;
 import com.radiance.mixin_related.extensions.vanilla_resource_tracker.ISpriteContentsExt;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.BiomeColors;
-import net.minecraft.client.renderer.ItemBlockRenderTypes;
-import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.block.BlockRenderDispatcher;
-import net.minecraft.client.renderer.block.LiquidBlockRenderer;
-import net.minecraft.client.resources.model.geometry.BakedQuad;
+import net.minecraft.client.color.block.BlockTintSource;
+import net.minecraft.client.renderer.block.BlockAndTintGetter;
+import net.minecraft.client.renderer.block.BlockStateModelSet;
+import net.minecraft.client.renderer.block.FluidModel;
+import net.minecraft.client.renderer.block.FluidRenderer;
+import net.minecraft.client.renderer.block.FluidStateModelSet;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.minecraft.client.resources.model.BakedModel;
-import net.minecraft.client.resources.model.ModelBakery;
+import net.minecraft.client.resources.model.geometry.BakedQuad;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.RandomSource;
-import net.minecraft.client.renderer.block.BlockAndTintGetter;
+import net.minecraft.world.level.CardinalLighting;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluid;
@@ -30,7 +33,9 @@ import net.minecraft.world.phys.shapes.Shapes;
 public class ChunkTerrainBuilder {
     private VistaTerrain.Builder builder;
     private final Map<BlockState, Material> materials = new HashMap<>();
-    private final BlockRenderDispatcher blockRenderManager = Minecraft.getInstance().getBlockRenderer();
+    private final BlockStateModelSet blockModels = Minecraft.getInstance().getModelManager().getBlockStateModelSet();
+    private final FluidStateModelSet fluidModels = Minecraft.getInstance().getModelManager().getFluidStateModelSet();
+    private final List<BlockStateModelPart> parts = new ArrayList<>();
     private final RandomSource random = RandomSource.create(42);
 
     public void add(BlockAndTintGetter world, BlockPos pos, BlockState state) {
@@ -38,16 +43,17 @@ public class ChunkTerrainBuilder {
         int z = pos.getZ() & 15;
         if (x != 0 && x != 15 && z != 0 && z != 15) { return; }
         if (builder == null) {
-            builder = new VistaTerrain.Builder(world.getShade(Direction.WEST, true),
-                world.getShade(Direction.EAST, true), world.getShade(Direction.NORTH, true),
-                world.getShade(Direction.SOUTH, true));
+            CardinalLighting lighting = world.cardinalLighting();
+            builder = new VistaTerrain.Builder(lighting.west(), lighting.east(), lighting.north(),
+                lighting.south());
         }
         if (state.getRenderShape() == RenderShape.MODEL) {
             List<AABB> boxes = state.getOcclusionShape().toAabbs();
             if (!boxes.isEmpty()) {
                 Material material = materials.computeIfAbsent(state, this::getMaterial);
-                int tint = material.tintIndex < 0 ? 0xffffff
-                    : Minecraft.getInstance().getBlockColors().getColor(state, world, pos, material.tintIndex);
+                BlockTintSource tintSource = material.tintIndex < 0 ? null
+                    : Minecraft.getInstance().getBlockColors().getTintSource(state, material.tintIndex);
+                int tint = tintSource == null ? 0xffffff : tintSource.colorInWorld(state, world, pos);
                 int color = tint(material.color, tint);
                 for (AABB box : boxes) {
                     if ((x != 0 || box.minX > 0) && (x != 15 || box.maxX < 1)
@@ -84,12 +90,16 @@ public class ChunkTerrainBuilder {
                 height -= 0.001f;
             }
             BlockState below = world.getBlockState(pos.below());
-            boolean renderBottom = LiquidBlockRenderer.shouldRenderFace(fluid, state,
+            boolean renderBottom = FluidRenderer.shouldRenderFace(fluid, state,
                 Direction.DOWN, below.getFluidState())
                 && !sideCovered(world, pos.below(), below, Direction.DOWN, 0.8888889f);
-            TextureAtlasSprite sprite = (water ? ModelBakery.WATER_FLOW : ModelBakery.LAVA_FLOW).sprite();
+            FluidModel fluidModel = fluidModels.get(fluid);
+            TextureAtlasSprite sprite = fluidModel.flowingMaterial().sprite();
             int color = ((ISpriteContentsExt) sprite.contents()).radiance$getAverageColor();
-            if (water) { color = tint(color, BiomeColors.getAverageWaterColor(world, pos)); }
+            // The fluid model's tint is the biome water colour for water and none for lava.
+            if (fluidModel.tintSource() != null) {
+                color = tint(color, fluidModel.tintSource().colorInWorld(state, world, pos));
+            }
             int[] sides = materials.computeIfAbsent(fluid.createLegacyBlock(), this::getMaterial).sides;
             builder.add(pos.getX(), pos.getZ(), pos.getY() + (renderBottom ? 0.001f : 0),
                 pos.getY() + height,
@@ -101,19 +111,33 @@ public class ChunkTerrainBuilder {
     public VistaTerrain build() { return builder == null ? VistaTerrain.EMPTY : builder.build(); }
 
     private Material getMaterial(BlockState state) {
-        BakedModel model = blockRenderManager.getBlockModel(state);
-        random.setSeed(42);
-        List<BakedQuad> quads = model.getQuads(state, Direction.NORTH, random);
-        if (quads.isEmpty()) {
-            random.setSeed(42);
-            quads = model.getQuads(state, Direction.UP, random);
+        BlockStateModel model = blockModels.get(state);
+        BakedQuad quad = firstQuad(model, Direction.NORTH);
+        if (quad == null) {
+            quad = firstQuad(model, Direction.UP);
         }
-        BakedQuad quad = quads.isEmpty() ? null : quads.get(0);
-        TextureAtlasSprite sprite = quad == null ? model.getParticleIcon() : quad.getSprite();
+        TextureAtlasSprite sprite = quad == null ? model.particleMaterial().sprite()
+            : quad.materialInfo().sprite();
         int color = ((ISpriteContentsExt) sprite.contents()).radiance$getAverageColor();
-        if (ItemBlockRenderTypes.getChunkRenderType(state) == RenderType.solid()) { color |= 0xff000000; }
-        return new Material(color, quad != null && quad.isTinted() ? quad.getTintIndex() : -1,
+        if (quad != null && quad.materialInfo().layer() == ChunkSectionLayer.SOLID) { color |= 0xff000000; }
+        return new Material(color, quad != null ? quad.materialInfo().tintIndex() : -1,
             Vista.sideMaterials(state));
+    }
+
+    private BakedQuad firstQuad(BlockStateModel model, Direction direction) {
+        random.setSeed(42);
+        model.collectParts(random, parts);
+        try {
+            for (BlockStateModelPart part : parts) {
+                List<BakedQuad> quads = part.getQuads(direction);
+                if (!quads.isEmpty()) {
+                    return quads.get(0);
+                }
+            }
+            return null;
+        } finally {
+            parts.clear();
+        }
     }
 
     private static int tint(int color, int tint) {
@@ -164,7 +188,7 @@ public class ChunkTerrainBuilder {
 
     private static boolean sideCovered(BlockAndTintGetter world, BlockPos pos, BlockState state,
         Direction direction, float height) {
-        return state.canOcclude() && Shapes.blockOccudes(
+        return state.canOcclude() && Shapes.blockOccludes(
             Shapes.box(0, 0, 0, 1, height, 1), state.getOcclusionShape(), direction);
     }
 

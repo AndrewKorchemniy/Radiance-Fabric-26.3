@@ -1,9 +1,9 @@
 package com.radiance.mixin_related.extensions.vulkan_render_integration;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
-import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 
 public interface IBlockColorsExt {
 

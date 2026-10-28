@@ -2,6 +2,7 @@ package com.radiance.client.proxy.world;
 
 import com.radiance.client.profiler.Profiler;
 import java.util.BitSet;
+import net.minecraft.client.RotatingSectionStorage;
 import net.minecraft.client.renderer.ViewArea;
 import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
 
@@ -9,6 +10,9 @@ public final class BlockEntitySectionCache {
     private static final SectionRenderDispatcher.RenderSection[] EMPTY =
         new SectionRenderDispatcher.RenderSection[0];
     private static final BitSet nonempty = new BitSet();
+    // ViewArea keeps its sections in a RotatingSectionStorage whose slots never change, so the
+    // storage identifies the section set and sections[i].index == i.
+    private static RotatingSectionStorage<SectionRenderDispatcher.RenderSection> sourceStorage;
     private static SectionRenderDispatcher.RenderSection[] source;
     private static SectionRenderDispatcher.RenderSection[] snapshot;
     private static boolean indexed;
@@ -16,6 +20,7 @@ public final class BlockEntitySectionCache {
     private BlockEntitySectionCache() {}
 
     public static synchronized void clear() {
+        sourceStorage = null;
         source = null;
         snapshot = null;
         nonempty.clear();
@@ -27,15 +32,18 @@ public final class BlockEntitySectionCache {
         if (source == null || !indexed || index < 0 || index >= source.length
             || source[index] != section) return;
         boolean wasNonempty = nonempty.get(index);
-        boolean isNonempty = !section.getCompiled().getRenderableBlockEntities().isEmpty();
+        boolean isNonempty = !section.getSectionMesh().getRenderableBlockEntities().isEmpty();
         nonempty.set(index, isNonempty);
         if (wasNonempty || isNonempty) snapshot = null;
     }
 
     public static synchronized SectionRenderDispatcher.RenderSection[] sections(ViewArea area) {
         boolean rebuilt = false;
-        if (source != area.sections) {
-            source = area.sections;
+        if (sourceStorage != area.sections) {
+            sourceStorage = area.sections;
+            source = new SectionRenderDispatcher.RenderSection[sourceStorage.size()];
+            int[] next = {0};
+            sourceStorage.forEach(section -> source[next[0]++] = section);
             nonempty.clear();
             snapshot = null;
             indexed = true;
@@ -45,7 +53,7 @@ public final class BlockEntitySectionCache {
                     indexed = false;
                     break;
                 }
-                if (!section.getCompiled().getRenderableBlockEntities().isEmpty()) nonempty.set(i);
+                if (!section.getSectionMesh().getRenderableBlockEntities().isEmpty()) nonempty.set(i);
             }
             rebuilt = true;
         }

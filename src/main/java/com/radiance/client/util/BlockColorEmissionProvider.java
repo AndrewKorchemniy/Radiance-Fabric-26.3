@@ -1,24 +1,36 @@
 package com.radiance.client.util;
 
-import net.minecraft.client.color.block.BlockColor;
-import net.minecraft.core.BlockPos;
-import net.minecraft.util.Tuple;
+import net.minecraft.client.color.block.BlockTintSource;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
-import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 
-public interface BlockColorEmissionProvider extends BlockColor {
+/**
+ * A block tint source that also makes the tinted texels emissive. 26.3 registers one
+ * {@link BlockTintSource} per tint index, so the index is no longer passed in.
+ */
+public interface BlockColorEmissionProvider extends BlockTintSource {
 
-    Tuple<Integer, Float> getColorEmission(BlockState state, @Nullable BlockAndTintGetter world,
-        @Nullable BlockPos pos, int tintIndex);
+    /** {@code net.minecraft.util.Tuple} is gone in 26.3. */
+    record ColorEmission(int color, float emission) {
+    }
 
-    default int getColor(BlockState state, @Nullable BlockAndTintGetter world, @Nullable BlockPos pos,
-        int tintIndex) {
-        return getColorEmission(state, world, pos, tintIndex).getA();
+    ColorEmission getColorEmission(BlockState state, @Nullable BlockAndTintGetter world,
+        @Nullable BlockPos pos);
+
+    @Override
+    default int color(BlockState state) {
+        return getColorEmission(state, null, null).color();
+    }
+
+    @Override
+    default int colorInWorld(BlockState state, BlockAndTintGetter world, BlockPos pos) {
+        return getColorEmission(state, world, pos).color();
     }
 
     default float getEmission(BlockState state, @Nullable BlockAndTintGetter world,
-        @Nullable BlockPos pos, int tintIndex) {
-        return getColorEmission(state, world, pos, tintIndex).getB();
+        @Nullable BlockPos pos) {
+        return getColorEmission(state, world, pos).emission();
     }
 }

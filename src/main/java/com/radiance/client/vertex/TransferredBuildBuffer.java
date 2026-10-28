@@ -2,6 +2,7 @@ package com.radiance.client.vertex;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.SectionBufferBuilderPack;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
@@ -19,9 +20,13 @@ public final class TransferredBuildBuffer implements AutoCloseable {
         this.allocator = Objects.requireNonNull(allocator, "allocator");
     }
 
+    /**
+     * Hands a section layer's allocator to native and gives the pack a fresh one, so the vertex data
+     * stays valid after vanilla clears or reuses the pack.
+     */
     public static TransferredBuildBuffer takeChunk(
         SectionBufferBuilderPack storage,
-        RenderType layer,
+        ChunkSectionLayer layer,
         MeshData builtBuffer) {
         ByteBufferBuilder allocator = ownerOf(builtBuffer);
         ByteBufferBuilder currentAllocator = storage.buffers.get(layer);

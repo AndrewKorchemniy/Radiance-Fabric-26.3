@@ -9,12 +9,13 @@ import org.spongepowered.asm.mixin.Shadow;
 @Mixin(ByteBufferBuilder.Result.class)
 public abstract class BufferAllocatorCloseableBufferMixins implements ICloseableBufferExt {
 
+    // Result is an inner class; javac stores its owning ByteBufferBuilder in this synthetic field.
     @Shadow
     @Final
-    private ByteBufferBuilder field_52088;
+    ByteBufferBuilder this$0;
 
     @Override
     public ByteBufferBuilder radiance$getOwnerAllocator() {
-        return field_52088;
+        return this$0;
     }
 }

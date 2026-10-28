@@ -1,76 +1,44 @@
 package com.radiance.mixins.vulkan_render_integration;
 
-import com.radiance.client.proxy.world.ChunkProxy;
 import com.radiance.client.proxy.world.BlockEntitySectionCache;
-import com.radiance.mixin_related.extensions.vulkan_render_integration.IChunkBuilderBuiltChunkExt;
-import java.util.stream.Collector;
-import java.util.stream.Stream;
+import com.radiance.client.proxy.world.ChunkProxy;
+import net.minecraft.client.renderer.chunk.SectionMesh;
 import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
-import org.spongepowered.asm.mixin.Final;
+import net.minecraft.core.SectionPos;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(SectionRenderDispatcher.RenderSection.class)
-public class ChunkBuilderBuiltChunkMixins implements IChunkBuilderBuiltChunkExt {
-
-    @Shadow
-    @Final
-    SectionRenderDispatcher field_20833;
-
-    @Unique
-    public SectionRenderDispatcher radiance$getChunkBuilder() {
-        return field_20833;
-    }
-
-    @Redirect(method = "<init>",
-        at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;collect(Ljava/util/stream/Collector;)Ljava/lang/Object;"))
-    private Object cancelCollect(Stream<?> stream, Collector<?, ?, ?> collector) {
-        return null;
-    }
+public class ChunkBuilderBuiltChunkMixins {
 
     @Inject(method = "reset()V", at = @At(value = "TAIL"))
-    private void addToRebuildGridClear(CallbackInfo ci) {
-        SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
-        BlockEntitySectionCache.changed(self);
-        ChunkProxy.enqueueRebuild(self);
-    }
-
-    @Inject(method = "setCompiled(Lnet/minecraft/client/renderer/chunk/SectionRenderDispatcher$CompiledSection;)V",
-        at = @At("TAIL"))
-    private void updateBlockEntitySections(SectionRenderDispatcher.CompiledSection data, CallbackInfo ci) {
+    private void updateBlockEntitySectionsOnReset(CallbackInfo ci) {
         BlockEntitySectionCache.changed((SectionRenderDispatcher.RenderSection) (Object) this);
     }
 
-    @Inject(method = "setDirty(Z)V", at = @At(value = "TAIL"))
-    private void addToRebuildGridScheduleRebuild(CallbackInfo ci) {
-        SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
-        ChunkProxy.enqueueRebuild(self);
+    @Inject(method = "setSectionMesh(Lnet/minecraft/client/renderer/chunk/SectionMesh;)Lnet/minecraft/client/renderer/chunk/SectionMesh;",
+        at = @At("TAIL"))
+    private void updateBlockEntitySections(SectionMesh sectionMesh,
+        CallbackInfoReturnable<SectionMesh> cir) {
+        BlockEntitySectionCache.changed((SectionRenderDispatcher.RenderSection) (Object) this);
     }
 
+    // The storage moves sections around as the camera moves (and places them once from the
+    // constructor). Native drops the old contents under a new generation; compiles of the old
+    // position still in flight are discarded by ChunkProxy.
     @Inject(method = "setSectionNode(J)V", at = @At(value = "HEAD"))
-    private void beginNativeChunkRelocation(long sectionPos, CallbackInfo ci) {
+    private void beginNativeChunkRelocation(long sectionNode, CallbackInfo ci) {
         SectionRenderDispatcher.RenderSection self = (SectionRenderDispatcher.RenderSection) (Object) this;
-        ChunkProxy.beginRelocation(self, net.minecraft.core.SectionPos.x(sectionPos) << 4,
-            net.minecraft.core.SectionPos.y(sectionPos) << 4,
-            net.minecraft.core.SectionPos.z(sectionPos) << 4);
+        ChunkProxy.beginRelocation(self, SectionPos.sectionToBlockCoord(SectionPos.x(sectionNode)),
+            SectionPos.sectionToBlockCoord(SectionPos.y(sectionNode)),
+            SectionPos.sectionToBlockCoord(SectionPos.z(sectionNode)));
     }
 
     @Inject(method = "setSectionNode(J)V", at = @At(value = "TAIL"))
-    private void finishNativeChunkRelocation(long sectionPos, CallbackInfo ci) {
+    private void finishNativeChunkRelocation(long sectionNode, CallbackInfo ci) {
         ChunkProxy.finishRelocation((SectionRenderDispatcher.RenderSection) (Object) this);
-    }
-
-    @Inject(method = "releaseBuffers()V",
-        at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/renderer/chunk/SectionRenderDispatcher$RenderSection;reset()V",
-            shift = At.Shift.AFTER),
-        cancellable = true)
-    public void cancelVertexConsumerDelete(CallbackInfo ci) {
-        ci.cancel();
     }
 }
