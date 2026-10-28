@@ -13,7 +13,7 @@ and has to be ported alongside it.
 | M2 Render integration rewrite (Java) | Done: `compileJava` passes and every mixin applies (`./gradlew runAuditMixins`) |
 | M3 MCVR native port | Done: [MCVR-26.3](https://github.com/AndrewKorchemniy/MCVR-26.3) (`port/26.3`, pinned as `native/MCVR`) attaches to vanilla's device; the game starts and loads worlds |
 | M4 Vanilla world rendering in game | Verified on an RTX 5090 without Sodium/DH: textured, sunlit terrain, leaves, water, sky, clouds, hand, HUD; F2 screenshots and the blurred pause menu include the world. See "Known issues" |
-| M5 Voxy integration | Loads in game with Sodium and creates its world engine; Voxy's own renderer is suppressed as designed. Voxy far terrain has **not** been seen rendering yet (the test spot was mostly ocean and Voxy ingests slowly) |
+| M5 Voxy integration | Far terrain renders in singleplayer (fixed: the CPU atlas copy ignored 26.3's sprite padding, so every solid face sampled transparent texels). Sparse cut-outs such as leaves are still dropped until native honours tile alpha, so far trees look thin. Not yet tested on a server |
 | M5a Sodium compatibility | Verified in game with Sodium 0.9.3-beta.1: near terrain renders through Radiance |
 | M6 Distant Horizons integration | Verified in game with DH 3.3.4: LODs render beyond the vanilla distance. DH's "no fog" setting is now passed to native as no fog |
 | M7 Release workflow | Done: `.github/workflows/release.yml` builds MCVR and the mod on Windows and Linux and publishes both jars on a `v*` tag |
@@ -616,6 +616,14 @@ Useful dev runs:
 - `./gradlew runAuditMixins` applies every mixin and exits.
 - `./gradlew runClient` starts the game with Sodium, Voxy and Distant Horizons;
   `-PradianceWithoutSodium` and `-PradianceWithoutDistantHorizons` leave them out.
+  `-PradianceRunDir=<dir>` picks the game directory and `-PquickPlay=<world>`
+  joins a save on startup.
+- Automated checks without touching the desktop (Windows):
+  `tools/run-hidden.ps1 -Harness <dir> -World <save>` starts the game on an
+  invisible desktop with the test harness enabled and sound muted. Write
+  commands to `<dir>/commands.txt` (`run <server command>`, `wait <ticks>`,
+  `screenshot <name>`, `quit`); screenshots and `log.txt` appear in `<dir>`, and
+  `status.txt` says `world` once the save has loaded. See `TestHarness`.
 
 ## Known issues
 
@@ -630,6 +638,15 @@ Useful dev runs:
   that is the place to look.
 - **Blurred menus** blur the world natively and the HUD through vanilla's own
   blur, so the result matches vanilla closely but not exactly.
+- **Edge shimmer against a bright sky.** Fine geometry such as leaves flickers
+  against a day or dusk sky. Measured with the harness at a static camera, the
+  frame-to-frame change on those edges drops about 10x with camera jitter off
+  (render pipeline setting "use jitter"), and only about 2x with the upscaler at
+  native resolution; FSR sharpening and the reactive mask are not the cause. The
+  jitter handed to FSR, the motion vectors and NRD's jitter inputs check out, so
+  the remaining suspect is how NRD and the path tracer's history treat pixels
+  that alternate between leaf and sky every frame. Turning jitter off is a
+  workaround at the cost of aliased edges.
 - **Image layouts.** Native samples vanilla's textures, which vanilla keeps in
   `VK_IMAGE_LAYOUT_GENERAL`, through descriptors that declare
   `SHADER_READ_ONLY_OPTIMAL`. This works on NVIDIA; validation would flag it.
