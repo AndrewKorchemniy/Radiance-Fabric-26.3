@@ -5,10 +5,6 @@ import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.memAddress;
 import static org.lwjgl.system.MemoryUtil.memSet;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.renderpearl.api.vertex.VertexFormat;
-import com.radiance.client.constant.Constants;
 import com.radiance.client.profiler.Profiler;
 import com.radiance.client.texture.TextureTracker;
 import java.nio.ByteBuffer;
@@ -17,17 +13,17 @@ import java.util.Map;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.FogParameters;
-import net.minecraft.client.renderer.RenderStateShard;
+import net.minecraft.client.renderer.fog.FogData;
+import net.minecraft.client.renderer.rendertype.TextureTransform;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.lwjgl.system.MemoryStack;
 
 public class BufferProxy {
 
-    private static native long createAndUploadVertexIndexBufferNative(long vertexAddress,
-        int vertexSizeBytes, long sortedIndexAddress, int indexSizeBytes, int indexType,
-        int drawMode, int vertexCount, int indexCount);
+    /** 1.21.4's {@code FogShape} indices, which native still uses. */
+    private static final int FOG_SHAPE_SPHERE = 0;
+    private static final int FOG_SHAPE_CYLINDER = 1;
 
     public static BufferInfo getBufferInfo(ByteBuffer sourceBuffer) {
         ByteBuffer slicedBuffer = sourceBuffer.slice();
@@ -39,104 +35,20 @@ public class BufferProxy {
         return new BufferInfo(bufferAddress, sizeBytes);
     }
 
-    private static native void performQueuedUploadNative();
-
-    public static void performQueuedUpload() {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.BufferProxy.performQueuedUpload");
-        }
-        try {
-            performQueuedUploadNative();
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
-
-    public static VertexIndexBufferHandle createAndUploadVertexIndexBuffer(
-        MeshData builtBuffer) {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.BufferProxy.createAndUploadVertexIndexBuffer");
-        }
-        try {
-            MeshData.DrawState drawParameters = builtBuffer.drawState();
-            assert builtBuffer.drawState().mode() == VertexFormat.Mode.QUADS;
-
-            int vertexSize = drawParameters.vertexCount() * drawParameters.format().getVertexSize();
-            int indexSize = drawParameters.indexCount() * drawParameters.indexType().bytes;
-            BufferInfo vertexBuffer = getBufferInfo(builtBuffer.vertexBuffer());
-            ByteBuffer sortedIndexBuffer = builtBuffer.indexBuffer();
-            BufferInfo sortedIndex = sortedIndexBuffer == null ? null : getBufferInfo(sortedIndexBuffer);
-            assert vertexBuffer.sizeBytes == vertexSize;
-            assert sortedIndex == null || sortedIndex.sizeBytes == indexSize;
-
-            long packedIds = createAndUploadVertexIndexBufferNative(vertexBuffer.address,
-                vertexSize, sortedIndex == null ? 0L : sortedIndex.address, indexSize,
-                Constants.IndexTypes.getValue(drawParameters.indexType()),
-                Constants.DrawModes.getValue(drawParameters.mode()), drawParameters.vertexCount(),
-                drawParameters.indexCount());
-            return new VertexIndexBufferHandle((int) (packedIds >>> Integer.SIZE), (int) packedIds);
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
-
-    private static native void updateOverlayPostUniformNative(long uniformAddress);
-
-    public static void updateOverlayPostUniform(float radius) {
-        if (Profiler.ENABLED) {
-            Profiler.enter("java.BufferProxy.updateOverlayPostUniform");
-        }
-        try (MemoryStack stack = stackPush()) {
-            int sizeBytes = 96;
-            ByteBuffer uniformBuffer = stack.malloc(sizeBytes);
-            long uniformAddress = memAddress(uniformBuffer);
-            int byteOffset = 0;
-
-            Matrix4f projectionMatrix = new Matrix4f();
-            projectionMatrix.get(byteOffset, uniformBuffer);
-            byteOffset += Float.BYTES * 16;
-
-            for (int i = 0; i < 2; i++) {
-                byteOffset += Float.BYTES;
-            }
-
-            for (int i = 0; i < 2; i++) {
-                byteOffset += Float.BYTES;
-            }
-
-            float[] blurDirection = {1.0f, 1.0f};
-            for (int i = 0; i < 2; i++) {
-                uniformBuffer.putFloat(byteOffset, blurDirection[i]);
-                byteOffset += Float.BYTES;
-            }
-
-            uniformBuffer.putFloat(byteOffset, radius);
-            byteOffset += Float.BYTES;
-
-            float radiusMultiplier = 1.0f;
-            uniformBuffer.putFloat(byteOffset, radiusMultiplier);
-
-            updateOverlayPostUniformNative(uniformAddress);
-        } finally {
-            if (Profiler.ENABLED) {
-                Profiler.exit();
-            }
-        }
-    }
-
     private static native void updateWorldUniformNative(long uniformAddress);
 
+    /**
+     * @param gameTime the day-relative game time vanilla gives its shaders, (time % 24000 +
+     *                 partial tick) / 24000
+     */
     public static void updateWorldUniform(Camera camera, Matrix4f viewMatrix,
-        Matrix4f effectedViewMatrix, Matrix4f projectionMatrix, int overlayTextureID, FogParameters fog,
-        ClientLevel world, int endSkyTextureID, int endPortalTextureID, int lightMapTextureID) {
+        Matrix4f effectedViewMatrix, Matrix4f projectionMatrix, int overlayTextureID, FogData fog,
+        ClientLevel world, float gameTime, int endSkyTextureID, int endPortalTextureID,
+        int lightMapTextureID) {
         if (Profiler.ENABLED) {
             Profiler.enter("java.BufferProxy.updateWorldUniform");
         }
-        try (MemoryStack stack = stackPush()) {
+        try (var stack = stackPush()) {
             int sizeBytes = 624;
             ByteBuffer uniformBuffer = stack.malloc(sizeBytes);
             long uniformAddress = memAddress(uniformBuffer);
@@ -154,39 +66,46 @@ public class BufferProxy {
             byteOffset += Float.BYTES * 16 * 3;
             byteOffset += Float.BYTES * 2;
 
-            float gameTime = RenderSystem.getShaderGameTime();
             uniformBuffer.putFloat(byteOffset, gameTime);
             byteOffset += Float.BYTES;
 
             byteOffset += Integer.BYTES;
 
-            RenderStateShard.setupGlintTexturing(0.16F);
-            Matrix4f textureMat = RenderSystem.getTextureMatrix();
+            // The armor glint scroll, as 1.21.4 read it back from setupGlintTexturing(0.16F).
+            Matrix4f textureMat = TextureTransform.ARMOR_ENTITY_GLINT_TEXTURING.createMatrix();
             textureMat.get(byteOffset, uniformBuffer);
             byteOffset += Float.BYTES * 16;
-            RenderSystem.resetTextureMatrix();
 
             uniformBuffer.putInt(byteOffset, overlayTextureID);
             byteOffset += Integer.BYTES;
             uniformBuffer.putInt(byteOffset, camera.isDetached() ? 0 : 1);
             byteOffset += Integer.BYTES;
-            uniformBuffer.putFloat(byteOffset, fog.start());
+
+            // 26.3 blends an environmental fog (water, lava, blindness...) with a render distance
+            // fog. 1.21.4 had a single range: take whichever is nearer, spherical for environmental
+            // fog and cylindrical for distance fog, as 1.21.4's FogRenderer chose.
+            boolean environmental = fog.environmentalEnd < fog.renderDistanceEnd;
+            uniformBuffer.putFloat(byteOffset,
+                environmental ? fog.environmentalStart : fog.renderDistanceStart);
             byteOffset += Float.BYTES;
-            uniformBuffer.putFloat(byteOffset, fog.end());
+            uniformBuffer.putFloat(byteOffset,
+                environmental ? fog.environmentalEnd : fog.renderDistanceEnd);
             byteOffset += Float.BYTES;
 
-            uniformBuffer.putFloat(byteOffset, fog.red());
+            uniformBuffer.putFloat(byteOffset, fog.color.x());
             byteOffset += Float.BYTES;
-            uniformBuffer.putFloat(byteOffset, fog.green());
+            uniformBuffer.putFloat(byteOffset, fog.color.y());
             byteOffset += Float.BYTES;
-            uniformBuffer.putFloat(byteOffset, fog.blue());
+            uniformBuffer.putFloat(byteOffset, fog.color.z());
             byteOffset += Float.BYTES;
-            uniformBuffer.putFloat(byteOffset, fog.alpha());
+            uniformBuffer.putFloat(byteOffset, fog.color.w());
             byteOffset += Float.BYTES;
 
-            uniformBuffer.putInt(byteOffset, fog.shape().getIndex());
+            uniformBuffer.putInt(byteOffset, environmental ? FOG_SHAPE_SPHERE : FOG_SHAPE_CYLINDER);
             byteOffset += Integer.BYTES;
-            uniformBuffer.putInt(byteOffset, world.effects().skyType().ordinal());
+            uniformBuffer.putInt(byteOffset, world.dimensionType()
+                .skybox()
+                .ordinal());
             byteOffset += Integer.BYTES;
             uniformBuffer.putInt(byteOffset, world.getMinY());
             byteOffset += Integer.BYTES;
@@ -240,7 +159,7 @@ public class BufferProxy {
         if (Profiler.ENABLED) {
             Profiler.enter("java.BufferProxy.updateSkyUniform");
         }
-        try (MemoryStack stack = stackPush()) {
+        try (var stack = stackPush()) {
             int sizeBytes = 80;
             ByteBuffer uniformBuffer = stack.malloc(sizeBytes);
             long uniformAddress = memAddress(uniformBuffer);
@@ -288,7 +207,8 @@ public class BufferProxy {
             uniformBuffer.putInt(byteOffset, moonTextureID);
             byteOffset += Integer.BYTES;
             var minecraft = Minecraft.getInstance();
-            var camera = minecraft.gameRenderer.getMainCamera().getPosition();
+            Vec3 camera = minecraft.gameRenderer.mainCamera()
+                .position();
             uniformBuffer.putInt(byteOffset, com.radiance.client.texture.RainExposure.update(
                 minecraft.level, camera.x, camera.z));
 
@@ -306,7 +226,7 @@ public class BufferProxy {
         if (Profiler.ENABLED) {
             Profiler.enter("java.BufferProxy.updateMapping");
         }
-        try (MemoryStack stack = stackPush()) {
+        try (var stack = stackPush()) {
             final int elementCount = 4096;
             int sizeBytes = elementCount * Integer.BYTES * 3;
             ByteBuffer mappingBuffer = stack.malloc(sizeBytes);
@@ -349,16 +269,5 @@ public class BufferProxy {
 
     public record BufferInfo(long address, int sizeBytes) {
 
-    }
-
-    public static class VertexIndexBufferHandle {
-
-        public int vertexId;
-        public int indexId;
-
-        public VertexIndexBufferHandle(int vertexId, int indexId) {
-            this.vertexId = vertexId;
-            this.indexId = indexId;
-        }
     }
 }

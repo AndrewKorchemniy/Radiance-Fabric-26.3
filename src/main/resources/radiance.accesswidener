@@ -26,6 +26,7 @@ accessible	class	net/minecraft/client/gui/components/OptionsList$Entry
 accessible	method	net/minecraft/client/gui/components/OptionsList$Entry	<init>	(Ljava/util/List;Lnet/minecraft/client/gui/screens/Screen;)V
 accessible	method	net/minecraft/client/gui/components/AbstractSelectionList	addEntry	(Lnet/minecraft/client/gui/components/AbstractSelectionList$Entry;)I
 accessible	class	net/minecraft/client/renderer/CloudRenderer$RelativeCameraPos
+accessible	method	net/minecraft/client/renderer/WeatherEffectRenderer	prepareInstances	(Lcom/mojang/blaze3d/vertex/VertexConsumer;Ljava/util/List;Lnet/minecraft/world/phys/Vec3;FIF)V
 accessible	field	net/minecraft/client/OptionInstance	toString	Ljava/util/function/Function;
 accessible	field	net/minecraft/client/OptionInstance	caption	Lnet/minecraft/network/chat/Component;
 accessible	field	net/minecraft/client/gui/screens/Screen	renderables	Ljava/util/List;
@@ -57,12 +58,3 @@ accessible	class	net/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack
 #accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	transparencyState	Lnet/minecraft/client/renderer/RenderStateShard$TransparencyStateShard;
 #accessible	field	net/minecraft/client/renderer/RenderStateShard	name	Ljava/lang/String;
 #accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	cullState	Lnet/minecraft/client/renderer/RenderStateShard$CullStateShard;
-#accessible	method	net/minecraft/client/renderer/RenderStateShard	setupGlintTexturing	(F)V
-#accessible	method	net/minecraft/client/renderer/ItemInHandRenderer	evaluateWhichHandsToRender	(Lnet/minecraft/client/player/LocalPlayer;)Lnet/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection;
-#accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderMainHand	Z
-#accessible	field	net/minecraft/client/renderer/ItemInHandRenderer$HandRenderSelection	renderOffHand	Z
-#accessible	field	net/minecraft/client/renderer/SkyRenderer	SUN_LOCATION	Lnet/minecraft/resources/Identifier;
-#accessible	field	net/minecraft/client/renderer/SkyRenderer	MOON_LOCATION	Lnet/minecraft/resources/Identifier;
-#accessible	field	net/minecraft/client/renderer/RenderType$CompositeState	depthTestState	Lnet/minecraft/client/renderer/RenderStateShard$DepthTestStateShard;
-#accessible	class	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard
-#accessible	field	net/minecraft/client/renderer/RenderStateShard$DepthTestStateShard	functionName	Ljava/lang/String;

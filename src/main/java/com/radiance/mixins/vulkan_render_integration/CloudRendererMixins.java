@@ -1,31 +1,43 @@
 package com.radiance.mixins.vulkan_render_integration;
 
-import com.mojang.blaze3d.buffers.BufferUsage;
 import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.radiance.client.UnsafeManager;
 import com.radiance.client.constant.Constants;
 import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.client.vertex.PBRVertexConsumer;
 import com.radiance.client.vertex.StorageVertexConsumerProvider;
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.renderer.CloudRenderer;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Clouds as ray-traced geometry. 26.3 builds clouds on the GPU from a face buffer in
+ * {@code prepare}; Radiance cancels that and tessellates the 1.21.4 cloud mesh instead.
+ * {@code WorldRendererMixins} calls {@code prepare} each frame, since vanilla's call sits in the
+ * skipped main pass.
+ */
 @Mixin(CloudRenderer.class)
 public class CloudRendererMixins {
+
+    /** 26.3 has no cloud render types, only pipelines; native keys clouds on the "cloud" name. */
+    @Unique
+    private static final RenderType radiance$FANCY_CLOUDS = RenderType.create("clouds",
+        RenderSetup.builder(RenderPipelines.CLOUDS).createRenderSetup());
+
+    @Unique
+    private static final RenderType radiance$FLAT_CLOUDS = RenderType.create("flat_clouds",
+        RenderSetup.builder(RenderPipelines.FLAT_CLOUDS).createRenderSetup());
 
     @Shadow
     private boolean needsRebuild;
@@ -40,13 +52,10 @@ public class CloudRendererMixins {
     private CloudRenderer.RelativeCameraPos prevRelativeCameraPos;
 
     @Shadow
-    private CloudStatus prevType;
+    private CloudStatus prevCloudStatus;
 
     @Shadow
     private CloudRenderer.TextureData texture;
-
-    @Shadow
-    private boolean vertexBufferEmpty;
 
     @Unique
     private StorageVertexConsumerProvider storageVertexConsumerProvider = null;
@@ -79,22 +88,18 @@ public class CloudRendererMixins {
         return (packed >> 0 & 1L) != 0L;
     }
 
-    @Redirect(method = "<init>", at = @At(value = "NEW", target = "com/mojang/blaze3d/vertex/VertexBuffer"))
-    private VertexBuffer cancelBufferInit(BufferUsage usage) {
-        return UnsafeManager.INSTANCE.allocateInstance(VertexBuffer.class);
-    }
-
     @Inject(method =
-        "render(ILnet/minecraft/client/CloudStatus;FLorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lnet/minecraft/world/phys/Vec3;F)V", at = @At(value = "HEAD"), cancellable = true)
+        "prepare(ILnet/minecraft/client/CloudStatus;FILnet/minecraft/world/phys/Vec3;JF)V", at = @At(value = "HEAD"), cancellable = true)
     public void redirectCloudRendering(int color,
         CloudStatus cloudRenderMode,
         float cloudHeight,
-        Matrix4f positionMatrix,
-        Matrix4f projectionMatrix,
+        int range,
         Vec3 cameraPos,
-        float ticks,
+        long gameTime,
+        float partialTicks,
         CallbackInfo ci) {
         if (this.texture != null) {
+            float ticks = (float) (gameTime % (this.texture.width() * 400L)) + partialTicks;
             float f = (float) (cloudHeight - cameraPos.y);
             float g = f + 4.0F;
             CloudRenderer.RelativeCameraPos viewMode;
@@ -118,17 +123,17 @@ public class CloudRendererMixins {
             float m = (float) (e - k * 12.0F);
             RenderType
                 renderLayer =
-                cloudRenderMode == CloudStatus.FANCY ? RenderType.clouds()
-                    : RenderType.flatClouds();
+                cloudRenderMode == CloudStatus.FANCY ? radiance$FANCY_CLOUDS
+                    : radiance$FLAT_CLOUDS;
 
             if (this.needsRebuild || j != this.prevCellX || k != this.prevCellZ
                 || viewMode != this.prevRelativeCameraPos ||
-                cloudRenderMode != this.prevType) {
+                cloudRenderMode != this.prevCloudStatus) {
                 this.needsRebuild = false;
                 this.prevCellX = j;
                 this.prevCellZ = k;
                 this.prevRelativeCameraPos = viewMode;
-                this.prevType = cloudRenderMode;
+                this.prevCloudStatus = cloudRenderMode;
 
                 this.tessellateClouds(color, j, k, cloudRenderMode, viewMode, renderLayer);
             }
@@ -441,10 +446,5 @@ public class CloudRendererMixins {
                 .setNormal(-1.0F, 0.0F, 0.0F)
                 .setColor(northSouthColor);
         }
-    }
-
-    @Inject(method = "close()V", at = @At(value = "HEAD"), cancellable = true)
-    public void cancelBufferClose(CallbackInfo ci) {
-        ci.cancel();
     }
 }

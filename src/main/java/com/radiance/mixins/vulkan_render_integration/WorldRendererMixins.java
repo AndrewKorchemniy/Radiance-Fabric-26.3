@@ -1,89 +1,86 @@
 package com.radiance.mixins.vulkan_render_integration;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import com.radiance.client.UnsafeManager;
-import com.radiance.client.vista.Vista;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.radiance.client.proxy.vulkan.BufferProxy;
 import com.radiance.client.proxy.world.ChunkProxy;
 import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.client.proxy.world.PlayerProxy;
-import com.radiance.client.vertex.StorageVertexConsumerProvider;
+import com.radiance.client.texture.TextureTracker;
+import com.radiance.client.vista.Vista;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IGameRendererExt;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.ILightMapManagerExt;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IOverlayTextureExt;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.SortedSet;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
-import net.fabricmc.fabric.impl.client.rendering.WorldRenderContextImpl;
 import net.minecraft.client.Camera;
 import net.minecraft.client.CloudStatus;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.CloudRenderer;
-import net.minecraft.client.renderer.DimensionSpecialEffects;
-import net.minecraft.client.renderer.FogParameters;
-import net.minecraft.client.renderer.fog.FogRenderer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.SkyRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.ViewArea;
 import net.minecraft.client.renderer.WeatherEffectRenderer;
-import net.minecraft.client.renderer.WorldBorderRenderer;
+import net.minecraft.client.renderer.blockentity.AbstractEndPortalRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
-import net.minecraft.client.renderer.blockentity.TheEndPortalRenderer;
 import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
-import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
-import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.client.renderer.state.OptionsRenderState;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
+import net.minecraft.client.renderer.state.level.ParticlesRenderState;
+import net.minecraft.client.renderer.state.level.PlayerRenderState;
+import net.minecraft.client.renderer.state.level.SkyRenderState;
 import net.minecraft.core.BlockPos;
-import net.minecraft.server.level.BlockDestructionProgress;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.Mth;
-import net.minecraft.util.Tuple;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.joml.Vector4f;
+import org.joml.Vector4fc;
+import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * Feeds the ray tracer from {@code LevelRenderer.render}. On 1.21.4 Radiance replaced
+ * {@code renderLevel} outright; 26.3 extracts the frame first, so {@code render} keeps running (see
+ * {@code LevelRendererFrameMixins}) and Radiance reads the extracted state: uniforms at its start,
+ * entity-like geometry where {@code submitFeatures} would hand it to vanilla's feature renderers, and
+ * terrain bookkeeping at its end.
+ */
 @Mixin(value = LevelRenderer.class, priority = 1100)
 public abstract class WorldRendererMixins {
 
     @Unique
-    private final WorldRenderContextImpl radiance$worldRenderContext = new WorldRenderContextImpl();
+    private static final String RENDER =
+        "render(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;ZLnet/minecraft/client/renderer/state/level/CameraRenderState;Lcom/mojang/renderpearl/api/buffers/GpuBufferSlice;Lorg/joml/Vector4f;ZZ)V";
 
+    @Unique
+    private static final String SUBMIT_FEATURES =
+        "submitFeatures(Lnet/minecraft/client/renderer/state/level/LevelRenderState;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V";
 
-    @Inject(method = "setLevel", at = @At("RETURN"))
-    private void updateVistaWorld(ClientLevel world, CallbackInfo ci) {
-        Vista.setWorld(world);
-        com.radiance.client.texture.RainExposure.setWorld(world);
-    }
-
-
-    @Shadow
-    private ClientLevel level;
+    /** 26.3 stitches the sun into the celestial atlas; native samples the source texture. */
+    @Unique
+    private static final Identifier SUN_TEXTURE = Identifier.withDefaultNamespace(
+        "textures/environment/celestial/sun.png");
 
     @Final
     @Shadow
-    private Minecraft minecraft;
+    private GameRenderer gameRenderer;
 
     @Final
     @Shadow
@@ -93,24 +90,24 @@ public abstract class WorldRendererMixins {
     @Shadow
     private BlockEntityRenderDispatcher blockEntityRenderDispatcher;
 
+    @Final
     @Shadow
-    private ViewArea viewArea;
-
-    @Shadow
-    private Frustum cullingFrustum;
+    private LevelRenderState levelRenderState;
 
     @Final
     @Shadow
-    private List<Entity> visibleEntities;
+    private OptionsRenderState optionsRenderState;
+
+    @Final
+    @Shadow
+    private CloudRenderer cloudRenderer;
+
+    @Final
+    @Shadow
+    private WeatherEffectRenderer weatherEffectRenderer;
 
     @Shadow
-    private int visibleEntityCount;
-
-    @Shadow
-    private double prevCamRotX;
-
-    @Shadow
-    private double prevCamRotY;
+    private @Nullable ViewArea viewArea;
 
     @Final
     @Shadow
@@ -120,271 +117,188 @@ public abstract class WorldRendererMixins {
     @Shadow
     private ObjectArrayList<SectionRenderDispatcher.RenderSection> nearbyVisibleSections;
 
-    @Shadow
-    @Final
-    private Long2ObjectMap<SortedSet<BlockDestructionProgress>> destructionProgress;
-
-    @Shadow
-    @Final
-    private Set<BlockEntity> globalBlockEntities;
-
-    @Shadow
-    @Final
-    private WeatherEffectRenderer weatherEffectRenderer;
-
-    @Shadow
-    @Final
-    private WorldBorderRenderer worldBorderRenderer;
-
-    @Shadow
-    private int ticks;
-    @Shadow
-    @Final
-    private CloudRenderer cloudRenderer;
-
-
-
-    @Redirect(method = "<init>", at = @At(value = "NEW", target = "net/minecraft/client/renderer/SkyRenderer"))
-    private SkyRenderer cancelNewSkyRendering() {
-        return UnsafeManager.INSTANCE.allocateInstance(SkyRenderer.class);
-    }
-
-
-
-    @Redirect(method = "close()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/SkyRenderer;close()V"))
-    public void cancelSkyRenderingClose(SkyRenderer instance) {
-
-    }
-
-    @Redirect(method = "onResourceManagerReload(Lnet/minecraft/server/packs/resources/ResourceManager;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/LevelRenderer;initOutline()V"))
-    public void cancelReloadWithResourceManager(LevelRenderer instance) {
-
-    }
-
-    @Redirect(method = "collectVisibleEntities(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/culling/Frustum;Ljava/util/List;)Z", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;isDetached()Z"))
-    public boolean enablePlayerRendererInFirstPlayer(Camera instance) {
-        return true;
-    }
-
-    @Redirect(method = "collectVisibleEntities(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/culling/Frustum;Ljava/util/List;)Z", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/EntityRenderDispatcher;shouldRender(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/client/renderer/culling/Frustum;DDD)Z"))
-    public <E extends Entity> boolean loosenEntityFiltering(EntityRenderDispatcher instance,
-        E entity, Frustum frustum, double x, double y, double z) {
-        Vec3 vec3d = entity.position().subtract(new Vec3(x, y, z));
-        double distance = vec3d.length();
-        if (distance < 24) {
-            return true;
-        }
-        return this.entityRenderDispatcher.shouldRender(entity, frustum, x, y, z);
-    }
-
-
-    @Shadow
-    protected abstract void setupRender(Camera camera, Frustum frustum, boolean hasForcedFrustum,
-        boolean spectator);
-
-    @Shadow
-    protected abstract boolean collectVisibleEntities(Camera camera, Frustum frustum,
-        List<Entity> output);
-
-    @Shadow
-    protected abstract boolean shouldShowEntityOutlines();
-
-    @Shadow
-    protected abstract void applyFrustum(Frustum frustum);
-
-    @Shadow
-    protected abstract boolean shouldRenderDarkDisc(float tickDelta);
-
-    @Shadow
-    protected abstract boolean doesMobEffectBlockSky(Camera camera);
-
-    @Inject(method =
-        "renderLevel(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lnet/minecraft/client/DeltaTracker;ZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V", at = @At("HEAD"), cancellable = true)
-    public void redirectRender(GraphicsResourceAllocator allocator, DeltaTracker tickCounter,
-        boolean renderBlockOutline, Camera camera, GameRenderer gameRenderer,
-        Matrix4f effectedRotationMatrix, Matrix4f projectionMatrix, CallbackInfo ci) {
-        this.radiance$worldRenderContext.prepare((LevelRenderer) (Object) this, tickCounter,
-            renderBlockOutline, camera, gameRenderer, effectedRotationMatrix, projectionMatrix,
-            this.minecraft.renderBuffers().bufferSource(), false, this.level);
-        this.radiance$worldRenderContext.setFrustum(null);
-        EntityProxy.captureWorldRender(WorldRenderEvents.START,
-            () -> WorldRenderEvents.START.invoker().onStart(this.radiance$worldRenderContext));
-        PlayerProxy.setCameraPos(camera.getPosition());
-        Vista.render(camera, ((IGameRendererExt) gameRenderer).radiance$getRotationMatrix(),
-            projectionMatrix, tickCounter.getGameTimeDeltaPartialTick(false));
-
-        float f = tickCounter.getGameTimeDeltaPartialTick(false);
-        RenderSystem.setShaderGameTime(this.level.getGameTime(), f);
-        this.blockEntityRenderDispatcher.prepare(this.level, camera, this.minecraft.hitResult);
-        this.entityRenderDispatcher.prepare(this.level, camera, this.minecraft.crosshairPickEntity);
-
-        this.level.pollLightUpdates();
-        this.level.getChunkSource().getLightEngine().runLightUpdates();
-
-        Frustum frustum = this.cullingFrustum;
-
-        Vec3 vec3d = camera.getPosition();
-        double x = vec3d.x();
-        double y = vec3d.y();
-        double z = vec3d.z();
-
-        this.setupRender(camera, frustum, false, false);
-
-        boolean renderEntityOutline = false;
-        if (EntityProxy.isEntityNativeTransferEnabled()) {
-            renderEntityOutline = this.collectVisibleEntities(camera, frustum,
-                this.visibleEntities);
+    @Inject(method = RENDER, at = @At("HEAD"))
+    private void radiance$updateWorld(GraphicsResourceAllocator resourceAllocator,
+        boolean renderOutline, CameraRenderState cameraState, GpuBufferSlice terrainFog,
+        Vector4f fogColor, boolean shouldRenderSky, boolean consistentDepthRequired,
+        CallbackInfo ci) {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) {
+            return;
         }
 
-        this.radiance$worldRenderContext.setFrustum(frustum);
-        EntityProxy.captureWorldRender(WorldRenderEvents.AFTER_SETUP,
-            () -> WorldRenderEvents.AFTER_SETUP.invoker().afterSetup(this.radiance$worldRenderContext));
+        Camera camera = this.gameRenderer.mainCamera();
+        float tickDelta = this.levelRenderState.worldPartialTicks;
+        PlayerProxy.setCameraPos(cameraState.pos);
+
         Matrix4f viewMatrix = new Matrix4f(
-            ((IGameRendererExt) gameRenderer).radiance$getRotationMatrix());
-        Matrix4f effectedViewMatrix = new Matrix4f(effectedRotationMatrix);
+            ((IGameRendererExt) this.gameRenderer).radiance$getRotationMatrix());
+        Matrix4f effectedViewMatrix = new Matrix4f(cameraState.viewRotationMatrix);
+        Matrix4f projectionMatrix = radiance$projectionMatrix(cameraState);
+        Vista.render(camera, ((IGameRendererExt) this.gameRenderer).radiance$getRotationMatrix(),
+            projectionMatrix, tickDelta);
 
-
-        float h = gameRenderer.getRenderDistance();
-        boolean bl2 = this.minecraft.level.effects()
-            .isFoggyAt(Mth.floor(x), Mth.floor(y))
-            || this.minecraft.gui.getBossOverlay().shouldCreateWorldFog();
-        Vector4f vector4f = FogRenderer.computeFogColor(camera, f, this.minecraft.level,
-            this.minecraft.options.getEffectiveRenderDistance(), gameRenderer.getDarkenWorldAmount(f));
-        FogParameters fog = FogRenderer.setupFog(camera, FogRenderer.FogMode.FOG_TERRAIN,
-            vector4f, h, bl2, f);
-
-        TextureManager textureManager = Minecraft.getInstance().getTextureManager();
-        OverlayTexture overlayTexture = gameRenderer.overlayTexture();
-        int overlayTextureID = ((IOverlayTextureExt) overlayTexture).radiance$getTexture()
-            .getId();
-        int endSkyTextureID = textureManager.getTexture(TheEndPortalRenderer.END_SKY_LOCATION)
-            .getId();
-        int endPortalTextureID = textureManager.getTexture(
-            TheEndPortalRenderer.END_PORTAL_LOCATION).getId();
-        ILightMapManagerExt lightMapManagerExt = (ILightMapManagerExt) (gameRenderer.lightTexture());
+        // Untracked textures come back as -1; native treats 0 as "no texture".
+        int overlayTextureID = Math.max(TextureTracker.idOf(
+            ((IOverlayTextureExt) this.gameRenderer.overlayTexture()).radiance$getTexture()), 0);
+        int endSkyTextureID = Math.max(
+            TextureTracker.idOf(AbstractEndPortalRenderer.END_SKY_LOCATION), 0);
+        int endPortalTextureID = Math.max(
+            TextureTracker.idOf(AbstractEndPortalRenderer.END_PORTAL_LOCATION), 0);
+        ILightMapManagerExt lightMapManagerExt =
+            (ILightMapManagerExt) ((GameRendererLightmapAccessor) this.gameRenderer).radiance$getLightmap();
+        float gameTime = ((float) (this.levelRenderState.gameTime % 24000L) + tickDelta) / 24000.0F;
         BufferProxy.updateWorldUniform(camera, viewMatrix, effectedViewMatrix, projectionMatrix,
-            overlayTextureID, fog, level, endSkyTextureID, endPortalTextureID,
-            lightMapManagerExt.radiance$getTextureId());
+            overlayTextureID, cameraState.fogData, level, gameTime, endSkyTextureID,
+            endPortalTextureID, lightMapManagerExt.radiance$getTextureId());
 
-
-        float tickDelta = tickCounter.getGameTimeDeltaPartialTick(false);
-        float skyAngle = this.level.getTimeOfDay(tickDelta);
-        int baseColor = this.level.getSkyColor(camera.getPosition(), tickDelta);
-
-        DimensionSpecialEffects dimensionEffects = this.level.effects();
-        int horizonColor = dimensionEffects.getSunriseOrSunsetColor(skyAngle);
+        SkyRenderState skyState = this.levelRenderState.skyRenderState;
+        Vector3fc baseColor = skyState.skyColor != null ? skyState.skyColor : new Vector3f();
+        Vector4fc horizonColor = skyState.sunriseAndSunsetColor != null
+            ? skyState.sunriseAndSunsetColor : new Vector4f();
 
         PoseStack matrixStack = new PoseStack();
         matrixStack.pushPose();
-        matrixStack.mulPose(Axis.YP.rotationDegrees(-90.0F));
-        matrixStack.mulPose(Axis.XP.rotationDegrees(skyAngle * 360.0F));
-        Matrix4f rotationMatrix = matrixStack.last().pose();
-        Vector3f sunDirection = rotationMatrix.transformPosition(0, 1, 0, new Vector3f())
+        matrixStack.rotateDegrees(Axis.YP, -90.0F);
+        matrixStack.rotate(Axis.XP, skyState.sunAngle);
+        Vector3f sunDirection = matrixStack.last()
+            .pose()
+            .transformPosition(0, 1, 0, new Vector3f())
             .normalize();
         matrixStack.popPose();
 
-        boolean hasBlindnessOrDarkness = this.doesMobEffectBlockSky(camera);
+        // 1.21.4's FogType had no ATMOSPHERIC; native counts LAVA, WATER, POWDER_SNOW, NONE.
+        int submersionType = switch (cameraState.fogType) {
+            case LAVA -> 0;
+            case WATER -> 1;
+            case POWDER_SNOW -> 2;
+            default -> 3;
+        };
 
-        int submersionType = camera.getFluidInCamera().ordinal();
+        int sunTextureID = Math.max(TextureTracker.idOf(SUN_TEXTURE), 0);
+        // 1.21.4 had one moon_phases.png with all phases; 26.3 keeps each phase in its own texture.
+        int moonTextureID = Math.max(TextureTracker.idOf(Identifier.withDefaultNamespace(
+            "textures/environment/celestial/moon/" + skyState.moonPhase.getSerializedName()
+                + ".png")), 0);
 
-        int moonPhase = this.level.getMoonPhase();
-
-        float rainGradient = this.level.getRainLevel(tickDelta);
-
-        int sunTextureID = textureManager.getTexture(SkyRenderer.SUN_LOCATION).getId();
-
-        int moonTextureID = textureManager.getTexture(SkyRenderer.MOON_LOCATION).getId();
-
-        BufferProxy.updateSkyUniform(ARGB.redFloat(baseColor),
-            ARGB.greenFloat(baseColor), ARGB.blueFloat(baseColor),
-            ARGB.redFloat(horizonColor), ARGB.greenFloat(horizonColor),
-            ARGB.blueFloat(horizonColor), ARGB.alphaFloat(horizonColor), sunDirection,
-            dimensionEffects.skyType().ordinal(), dimensionEffects.isSunriseOrSunset(skyAngle),
-            this.shouldRenderDarkDisc(tickDelta), hasBlindnessOrDarkness, submersionType, moonPhase,
-            rainGradient, sunTextureID, moonTextureID);
+        BufferProxy.updateSkyUniform(baseColor.x(), baseColor.y(), baseColor.z(),
+            horizonColor.x(), horizonColor.y(), horizonColor.z(), horizonColor.w(), sunDirection,
+            skyState.skybox.ordinal(), horizonColor.w() > 0.001F, skyState.shouldRenderDarkDisc,
+            cameraState.entityRenderState.doesMobEffectBlockSky, submersionType,
+            skyState.moonPhase.index(), level.getRainLevel(tickDelta), sunTextureID, moonTextureID);
 
         BufferProxy.updateMapping();
 
+        EntityProxy.queueWeatherBuild(this.weatherEffectRenderer,
+            this.levelRenderState.weatherRenderState, cameraState.pos);
 
-        EntityProxy.captureWorldRender(WorldRenderEvents.BEFORE_ENTITIES,
-            () -> WorldRenderEvents.BEFORE_ENTITIES.invoker().beforeEntities(this.radiance$worldRenderContext));
-        this.radiance$worldRenderContext.setMatrixStack(new PoseStack());
-        EntityProxy.queueEntitiesBuild(camera, visibleEntities, this.entityRenderDispatcher,
-            tickCounter, shouldShowEntityOutlines());
-
-        EntityProxy.captureWorldRender(WorldRenderEvents.AFTER_ENTITIES,
-            () -> WorldRenderEvents.AFTER_ENTITIES.invoker().afterEntities(this.radiance$worldRenderContext));
-        Tuple<List<StorageVertexConsumerProvider>, EntityProxy.EntityRenderDataList> crumblingRenderData = EntityProxy.queueBlockEntitiesRebuild(
-            viewArea, this.globalBlockEntities, destructionProgress,
-            blockEntityRenderDispatcher, tickDelta);
-        EntityProxy.queueCrumblingRebuild(camera, destructionProgress,
-            this.minecraft.getBlockRenderer(), this.level, crumblingRenderData.getA(),
-            crumblingRenderData.getB());
-
-        EntityProxy.captureWorldRender(WorldRenderEvents.BEFORE_DEBUG_RENDER,
-            () -> WorldRenderEvents.BEFORE_DEBUG_RENDER.invoker().beforeDebugRender(this.radiance$worldRenderContext));
-        EntityProxy.queueParticleRebuild(camera, tickDelta, frustum);
-        EntityProxy.captureWorldRender(WorldRenderEvents.AFTER_TRANSLUCENT,
-            () -> WorldRenderEvents.AFTER_TRANSLUCENT.invoker().afterTranslucent(this.radiance$worldRenderContext));
-
-
-        if (renderBlockOutline) {
-            EntityProxy.queueTargetBlockOutlineRebuild(camera, level);
+        // Vanilla prepares clouds inside the skipped main pass; CloudRendererMixins turns the call
+        // into Radiance geometry.
+        CloudStatus cloudStatus = this.optionsRenderState.cloudStatus;
+        if (cloudStatus != CloudStatus.OFF && ARGB.alpha(this.levelRenderState.cloudColor) > 0) {
+            this.cloudRenderer.prepare(this.levelRenderState.cloudColor, cloudStatus,
+                this.levelRenderState.cloudHeight, this.optionsRenderState.cloudRange,
+                cameraState.pos, this.levelRenderState.gameTime, tickDelta);
         }
-
-        EntityProxy.queueWeatherBuild(this.weatherEffectRenderer, this.worldBorderRenderer, this.level,
-            camera, this.ticks, tickDelta);
-
-
-        CloudStatus cloudRenderMode = this.minecraft.options.getCloudsType();
-        if (cloudRenderMode != CloudStatus.OFF) {
-            float k = this.level.effects().getCloudHeight();
-            if (!Float.isNaN(k)) {
-                float ticks = (float) this.ticks + f;
-                int color = this.level.getCloudColor(f);
-                float cloudHeight = k + 0.33F;
-                this.cloudRenderer.render(color, cloudRenderMode, cloudHeight, null, null,
-                    camera.getPosition(), ticks);
-            }
-        }
-
-
-        ChunkProxy.setStorage(viewArea);
-        ChunkProxy.rebuild(camera, this.visibleSections, this.nearbyVisibleSections);
-
-        this.visibleEntities.clear();
-
-        EntityProxy.captureWorldRender(WorldRenderEvents.LAST,
-            () -> WorldRenderEvents.LAST.invoker().onLast(this.radiance$worldRenderContext));
-        EntityProxy.captureWorldRender(WorldRenderEvents.END,
-            () -> WorldRenderEvents.END.invoker().onEnd(this.radiance$worldRenderContext));
-
-        ci.cancel();
     }
 
+    /**
+     * The projection native traces with: vanilla's, plus the portal and nausea warp, but without view
+     * bobbing, which {@code GameRendererMixins} moved into the view matrix.
+     */
+    @Unique
+    private Matrix4f radiance$projectionMatrix(CameraRenderState cameraState) {
+        Matrix4f projectionMatrix = new Matrix4f(cameraState.projectionMatrix);
+        PlayerRenderState playerState = this.levelRenderState.playerRenderState;
+        float screenEffectScale = this.optionsRenderState.screenEffectScale;
+        float spinningEffectIntensity = Math.max(playerState.portalEffectIntensity,
+            playerState.nauseaEffectIntensity) * (screenEffectScale * screenEffectScale);
+        if (spinningEffectIntensity > 0.0F) {
+            float skew = 5.0F / (spinningEffectIntensity * spinningEffectIntensity + 5.0F)
+                - spinningEffectIntensity * 0.04F;
+            skew *= skew;
+            Vector3f axis = new Vector3f(0.0F, Mth.SQRT_OF_TWO / 2.0F, Mth.SQRT_OF_TWO / 2.0F);
+            float angle = playerState.spinningEffectAngle * (float) (Math.PI / 180.0);
+            projectionMatrix.rotate(angle, axis);
+            projectionMatrix.scale(1.0F / skew, 1.0F, 1.0F);
+            projectionMatrix.rotate(-angle, axis);
+        }
+        return projectionMatrix;
+    }
 
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/LevelRenderer;submitEntities(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/state/level/LevelRenderState;Lnet/minecraft/client/renderer/SubmitNodeCollector;)V"))
+    private void radiance$traceEntities(LevelRenderer instance, PoseStack poseStack,
+        LevelRenderState levelRenderState, SubmitNodeCollector output, Operation<Void> original) {
+        EntityProxy.queueEntitiesBuild(levelRenderState, this.entityRenderDispatcher);
+    }
 
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/LevelRenderer;submitBlockEntities(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/state/level/LevelRenderState;Lnet/minecraft/client/renderer/SubmitNodeCollector;)V"))
+    private void radiance$traceBlockEntities(LevelRenderer instance, PoseStack poseStack,
+        LevelRenderState levelRenderState, SubmitNodeCollector output, Operation<Void> original) {
+        EntityProxy.queueBlockEntitiesRebuild(levelRenderState, this.blockEntityRenderDispatcher);
+    }
 
+    /** Block crumbling is traced together with block entities, above. */
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/LevelRenderer;submitBlockDestroyAnimation(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/LevelRenderState;)V"))
+    private void radiance$skipBlockDestroyAnimation(LevelRenderer instance, PoseStack poseStack,
+        SubmitNodeCollector output, LevelRenderState levelRenderState, Operation<Void> original) {
+    }
 
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/LevelRenderer;submitTransientBlocks(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/LevelRenderState;)V"))
+    private void radiance$traceTransientBlocks(LevelRenderer instance, PoseStack poseStack,
+        SubmitNodeCollector output, LevelRenderState levelRenderState, Operation<Void> original) {
+        EntityProxy.queueCameraRelativeBuild(
+            collector -> original.call(instance, poseStack, collector, levelRenderState));
+    }
 
-    @Inject(method = "isSectionCompiled(Lnet/minecraft/core/BlockPos;)Z", at = @At(value = "HEAD"), cancellable = true)
-    public void redirectIsRenderingReady(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        SectionRenderDispatcher.RenderSection builtChunk = viewArea.getRenderSectionAt(pos);
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/state/level/ParticlesRenderState;submit(Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V"))
+    private void radiance$traceParticles(ParticlesRenderState instance, SubmitNodeCollector output,
+        CameraRenderState camera, Operation<Void> original) {
+        EntityProxy.queueParticleRebuild(instance, camera);
+    }
 
-        if (builtChunk == null) {
+    @WrapOperation(method = SUBMIT_FEATURES, at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/LevelRenderer;submitBlockOutline(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/LevelRenderState;)V"))
+    private void radiance$traceBlockOutline(LevelRenderer instance, PoseStack poseStack,
+        SubmitNodeCollector output, LevelRenderState levelRenderState, Operation<Void> original) {
+        EntityProxy.queueTargetBlockOutlineRebuild(levelRenderState.blockOutlineRenderState,
+            this.gameRenderer.useImprovedTransparency(),
+            this.gameRenderer.gameRenderState().windowRenderState.appropriateLineWidth);
+    }
+
+    /** After vanilla compiled sections and updated occlusion, as 1.21.4 did at the end of its frame. */
+    @Inject(method = RENDER, at = @At("TAIL"))
+    private void radiance$rebuildChunks(GraphicsResourceAllocator resourceAllocator,
+        boolean renderOutline, CameraRenderState cameraState, GpuBufferSlice terrainFog,
+        Vector4f fogColor, boolean shouldRenderSky, boolean consistentDepthRequired,
+        CallbackInfo ci) {
+        if (this.viewArea == null) {
+            return;
+        }
+        ChunkProxy.setStorage(this.viewArea);
+        ChunkProxy.rebuild(this.gameRenderer.mainCamera(), this.visibleSections,
+            this.nearbyVisibleSections);
+    }
+
+    /**
+     * A section only counts as compiled once its terrain is in the ray tracer, so entities in it and
+     * the loading screen wait for native, as 1.21.4's {@code isSectionCompiled} override did.
+     */
+    @Inject(method = "isSectionCompiledAndVisible(Lnet/minecraft/core/BlockPos;J)Z",
+        at = @At("HEAD"), cancellable = true)
+    private void radiance$waitForNativeSection(BlockPos blockPos, long chunkFadeDuration,
+        CallbackInfoReturnable<Boolean> cir) {
+        if (this.viewArea == null) {
+            return;
+        }
+        SectionRenderDispatcher.RenderSection section = this.viewArea.getRenderSectionAt(blockPos);
+        if (section != null && !ChunkProxy.isSectionReady(section)) {
             cir.setReturnValue(false);
-        } else if (builtChunk.compiled.get().isEmpty(null)) {
-            cir.setReturnValue(true);
-        } else if (builtChunk.compiled.get() == ChunkProxy.PROCESSED) {
-            cir.setReturnValue(ChunkProxy.isChunkReady(builtChunk));
         }
     }
-
-
-
-    @Inject(method = "countRenderedSections()I", at = @At(value = "HEAD"), cancellable = true)
-    public void fixGetCompletedChunkCount(CallbackInfoReturnable<Integer> cir) {
-        cir.setReturnValue(ChunkProxy.builtChunkCount - 54);
-    }
-
 }

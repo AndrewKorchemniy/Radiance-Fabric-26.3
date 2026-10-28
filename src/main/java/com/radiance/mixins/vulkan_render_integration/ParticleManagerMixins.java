@@ -1,69 +1,30 @@
 package com.radiance.mixins.vulkan_render_integration;
 
-import static com.radiance.client.proxy.world.EntityProxy.PARTICLE_COUNTERS;
-
 import com.llamalad7.mixinextras.sugar.Local;
-import com.radiance.mixin_related.extensions.vulkan_render_integration.IParticleManagerExt;
+import com.radiance.client.proxy.world.EntityProxy;
 import com.radiance.mixin_related.extensions.vulkan_render_integration.IParticleExt;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.concurrent.atomic.AtomicInteger;
+import net.minecraft.client.Camera;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
-import net.minecraft.client.particle.ParticleRenderType;
+import net.minecraft.client.renderer.culling.Frustum;
+import net.minecraft.client.renderer.state.level.ParticlesRenderState;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ParticleEngine.class)
-public class ParticleManagerMixins implements IParticleManagerExt {
+public class ParticleManagerMixins {
 
-    @Final
-    @Shadow
-    private static List<ParticleRenderType> RENDER_ORDER;
-    @Final
-    @Shadow
-    private Map<ParticleRenderType, Queue<Particle>> particles;
-
-    @Override
-    public List<ParticleRenderType> radiance$getTextureSheets() {
-        return RENDER_ORDER;
-    }
-
-    @Override
-    public Map<ParticleRenderType, Queue<Particle>> radiance$getParticles() {
-        return particles;
-    }
-
-    @Inject(method = "add(Lnet/minecraft/client/particle/Particle;)V", at = @At(value = "HEAD"))
-    public void addParticleCounter(Particle particle, CallbackInfo ci) {
-        PARTICLE_COUNTERS.computeIfAbsent(particle.getClass(), k -> new AtomicInteger())
-            .incrementAndGet();
-    }
-
-    @Inject(method = "tickParticleList(Ljava/util/Collection;)V", at = @At(value = "INVOKE", target = "Ljava/util/Iterator;remove()V"))
-    public void removeParticleCounter(Collection<Particle> particles, CallbackInfo ci,
-        @Local Particle particle) {
-        AtomicInteger counter = PARTICLE_COUNTERS.get(particle.getClass());
-        if (counter != null) {
-            counter.decrementAndGet();
-        }
-    }
-
+    /** Names each particle after its type, so native can treat particle types differently. */
     @Inject(method = "createParticle(Lnet/minecraft/core/particles/ParticleOptions;DDDDDD)Lnet/minecraft/client/particle/Particle;",
         at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/particle/ParticleEngine;add(Lnet/minecraft/client/particle/Particle;)V",
-            shift = At.Shift.BEFORE),
-        cancellable = true)
+            shift = At.Shift.BEFORE))
     public void checkParticleCounter(ParticleOptions parameters,
         double x,
         double y,
@@ -73,25 +34,26 @@ public class ParticleManagerMixins implements IParticleManagerExt {
         double velocityZ,
         CallbackInfoReturnable<Particle> cir,
         @Local Particle particle) {
-        AtomicInteger counter = PARTICLE_COUNTERS.get(particle.getClass());
-        if (counter != null) {
-            int numParticles = counter.get();
-
-
-
-
-
-
-
-
-
-        }
-
         Identifier particleId = BuiltInRegistries.PARTICLE_TYPE.getKey(parameters.getType());
         if (particleId != null) {
             ((IParticleExt) particle).radiance$setContentName(
                 EntityContentNames.toParticleContentName(particleId));
         }
+    }
+
+    /** While vanilla extracts, quad particles are routed into per-content groups. */
+    @Inject(method = "extract(Lnet/minecraft/client/renderer/state/level/ParticlesRenderState;Lnet/minecraft/client/renderer/culling/Frustum;Lnet/minecraft/client/Camera;F)V",
+        at = @At("HEAD"))
+    private void radiance$beginExtract(ParticlesRenderState particlesRenderState, Frustum frustum,
+        Camera camera, float partialTickTime, CallbackInfo ci) {
+        EntityProxy.beginParticleExtract();
+    }
+
+    @Inject(method = "extract(Lnet/minecraft/client/renderer/state/level/ParticlesRenderState;Lnet/minecraft/client/renderer/culling/Frustum;Lnet/minecraft/client/Camera;F)V",
+        at = @At("RETURN"))
+    private void radiance$endExtract(ParticlesRenderState particlesRenderState, Frustum frustum,
+        Camera camera, float partialTickTime, CallbackInfo ci) {
+        EntityProxy.endParticleExtract();
     }
 
     private static final class EntityContentNames {
