@@ -99,7 +99,8 @@ loom {
     accessWidenerPath = file("src/main/resources/radiance.accesswidener")
     runs {
         client {
-            runDir "run"
+            // -PradianceRunDir=<dir> keeps separate game directories for parallel test runs.
+            runDir project.findProperty("radianceRunDir") ?: "run"
         }
         // Applies every mixin and exits, without the native renderer: ./gradlew runAuditMixins
         auditMixins {
@@ -112,6 +113,14 @@ loom {
 
 tasks.named("runClient", JavaExec) {
     args "--width", "1920", "--height", "1080"
+    // -PquickPlay=<world> joins that singleplayer world on startup.
+    if (project.hasProperty("quickPlay")) {
+        args "--quickPlaySingleplayer", project.property("quickPlay")
+    }
+    // -PradianceHarness=<dir> enables the file-driven test harness (see TestHarness).
+    if (project.hasProperty("radianceHarness")) {
+        systemProperty "radiance.harness", project.file(project.property("radianceHarness")).absolutePath
+    }
 }
 
 repositories {

@@ -1,5 +1,6 @@
 package com.radiance.client;
 
+import com.radiance.client.dev.TestHarness;
 import com.radiance.client.mod_support.ModSupport;
 import com.mojang.logging.LogUtils;
 import com.radiance.client.option.Options;
@@ -47,6 +48,7 @@ public class RadianceClient implements ClientModInitializer {
             auditMixinsAndExit();
         }
         ModSupport.initialize();
+        TestHarness.initIfEnabled();
         if (Profiler.ENABLED) {
             ClientTickEvents.END_CLIENT_TICK.register(RadianceClient::tickProfiler);
         }
