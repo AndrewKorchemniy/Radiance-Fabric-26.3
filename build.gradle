@@ -151,10 +151,19 @@ dependencies {
 
     // Voxy 0.2.20-beta (Modrinth version iIrM8ZKQ)
     compileOnly "maven.modrinth:voxy:iIrM8ZKQ"
-    // Runtime-only copy so dev runs (and the mixin audit) load Voxy; not a published dependency.
-    localRuntime "maven.modrinth:voxy:iIrM8ZKQ"
-    // Voxy declares a hard dependency on Sodium (0.9.2 or 0.9.3 for 26.3) and links its classes.
-    localRuntime "maven.modrinth:sodium:mc26.3-0.9.3-beta.1-fabric"
+    // Sodium 0.9.3-beta.1 (0.9.2 has identical signatures for everything Radiance touches).
+    // Voxy declares a hard dependency on Sodium (0.9.2 or 0.9.3 for 26.3) and links its classes;
+    // Radiance captures near terrain from Sodium's chunk builder when it is installed.
+    def sodiumArtifact = "maven.modrinth:sodium:" + (project.findProperty("radianceSodiumVersion")
+        ?: "mc26.3-0.9.3-beta.1-fabric")
+    compileOnly sodiumArtifact
+    // Runtime-only copies so dev runs (and the mixin audit) load Voxy and Sodium; not published
+    // dependencies. Without Sodium, Voxy cannot load either: add -PradianceWithoutSodium to audit
+    // the vanilla terrain mixins, which are not applied while Sodium is installed.
+    if (!project.hasProperty("radianceWithoutSodium")) {
+        localRuntime "maven.modrinth:voxy:iIrM8ZKQ"
+        localRuntime sodiumArtifact
+    }
 
 
     // https://mvnrepository.com/artifact/org.yaml/snakeyaml

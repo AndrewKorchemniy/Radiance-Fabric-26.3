@@ -11,12 +11,29 @@ public class MixinPlugin implements IMixinConfigPlugin {
 
     public static boolean ENABLED = true;
 
+    /** Capture vanilla's section compile path; not applicable while Sodium is installed. */
+    private static final Set<String> VANILLA_TERRAIN_MIXINS = Set.of(
+        "com.radiance.mixins.vulkan_render_integration.BuiltChunkStorageMixins",
+        "com.radiance.mixins.vulkan_render_integration.ChunkBuilderBuiltChunkMixins",
+        "com.radiance.mixins.vulkan_render_integration.LevelExtractorSectionUpdatesMixins",
+        "com.radiance.mixins.vulkan_render_integration.SectionBuilderMixins",
+        "com.radiance.mixins.vulkan_render_integration.SectionCompileTaskMixins",
+        "com.radiance.mixins.vulkan_render_integration.SectionDirtyStateMixins");
+
     @Override
     public void onLoad(String mixinPackage) {
     }
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.startsWith("com.radiance.mixins.mod_support.sodium.")) {
+            return ENABLED && ModSupport.SODIUM;
+        }
+        // Sodium replaces vanilla's section management (its ViewArea is a stub, sections are built
+        // by its own chunk builder), so Radiance captures terrain from Sodium instead.
+        if (ModSupport.SODIUM && VANILLA_TERRAIN_MIXINS.contains(mixinClassName)) {
+            return false;
+        }
         if (mixinClassName.startsWith("com.radiance.mixins.mod_support.distant_horizons.")) {
             return ENABLED && ModSupport.DISTANT_HORIZONS;
         }
