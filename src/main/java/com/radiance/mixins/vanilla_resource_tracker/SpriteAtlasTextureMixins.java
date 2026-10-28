@@ -42,14 +42,19 @@ public abstract class SpriteAtlasTextureMixins extends AbstractTexture {
             if (atlasTarget == null) {
                 return;
             }
+            int atlasWidth = this.texture.getWidth(0);
+            int atlasHeight = this.texture.getHeight(0);
             for (TextureAtlasSprite sprite : this.sprites) {
                 SpriteContents contents = sprite.contents();
                 NativeImage image = contents.byMipLevel[0];
                 INativeImageExt imageExt = (INativeImageExt) (Object) image;
                 imageExt.radiance$setTarget(atlasTarget);
+                // 26.3 pads sprites in the atlas: getX()/getY() is the padded cell, while the
+                // sprite's pixels (and its UVs) start at u0/v0.
+                int x = Math.round(sprite.getU0() * atlasWidth);
+                int y = Math.round(sprite.getV0() * atlasHeight);
                 for (TextureProxy.TextureUploadRegion region : AuxiliaryTextures.buildUploadRegions(
-                    image, imageExt, 0, sprite.getX(), sprite.getY(), 0, 0, contents.width(),
-                    contents.height())) {
+                    image, imageExt, 0, x, y, 0, 0, contents.width(), contents.height())) {
                     TextureProxy.queueUploadRegion(region);
                 }
             }
